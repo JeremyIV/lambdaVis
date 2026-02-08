@@ -167,40 +167,79 @@ function assignUids(node) {
 }
 
 /**
- * Collect all UIDs from a subtree into a Set
+ * Animate the collapse from intermediate state to final state.
+ * Surviving nodes slide to final positions; redex nodes shrink-fade
+ * towards the shrink target (the body's final position).
  */
-function collectUids(node, uidSet) {
-    if (!node) return;
-    if (node.uid) uidSet.add(node.uid);
-    if (node.type === LAMBDA && node.expression) {
-        collectUids(node.expression, uidSet);
-    } else if (node.type === APPLICATION) {
-        if (node.left) collectUids(node.left, uidSet);
-        if (node.right) collectUids(node.right, uidSet);
-    }
-}
+function animateCollapse(shrinkTarget, finalPositions) {
+    const duration = ANIM_MOVE_DURATION;
+    const bezierLine = d3.line().curve(d3.curveCatmullRom.alpha(0.5));
 
-/**
- * Fade out nodes and edges whose UIDs are in the given set
- */
-function fadeOutNodes(fadeUids) {
+    // Animate nodes
     svgGroup.select('.nodes-layer').selectAll('circle')
-        .filter(d => fadeUids.has(d.data.uid))
-        .transition()
-        .duration(ANIM_FADE_DURATION)
-        .style('opacity', 0);
+        .each(function(d) {
+            const el = d3.select(this);
+            const finalPos = finalPositions.get(d.data.uid);
+            if (finalPos) {
+                // Surviving node: slide to final position
+                el.transition().duration(duration)
+                    .attr('cx', finalPos.x)
+                    .attr('cy', finalPos.y);
+            } else {
+                // Redex node: shrink-fade towards target
+                el.transition().duration(duration)
+                    .attr('cx', shrinkTarget.x)
+                    .attr('cy', shrinkTarget.y)
+                    .attr('r', 0)
+                    .style('opacity', 0);
+            }
+        });
 
+    // Animate tree edges
     svgGroup.select('.tree-edges-layer').selectAll('line')
-        .filter(d => fadeUids.has(d.source.data.uid) || fadeUids.has(d.target.data.uid))
-        .transition()
-        .duration(ANIM_FADE_DURATION)
-        .style('opacity', 0);
+        .each(function(d) {
+            const el = d3.select(this);
+            const srcFinal = finalPositions.get(d.source.data.uid);
+            const tgtFinal = finalPositions.get(d.target.data.uid);
+            if (srcFinal && tgtFinal) {
+                // Both survive: transition
+                el.transition().duration(duration)
+                    .attr('x1', srcFinal.x).attr('y1', srcFinal.y)
+                    .attr('x2', tgtFinal.x).attr('y2', tgtFinal.y);
+            } else {
+                // At least one redex endpoint: collapse towards target and fade
+                el.transition().duration(duration)
+                    .attr('x1', srcFinal ? srcFinal.x : shrinkTarget.x)
+                    .attr('y1', srcFinal ? srcFinal.y : shrinkTarget.y)
+                    .attr('x2', tgtFinal ? tgtFinal.x : shrinkTarget.x)
+                    .attr('y2', tgtFinal ? tgtFinal.y : shrinkTarget.y)
+                    .style('opacity', 0);
+            }
+        });
 
+    // Animate back edges
     svgGroup.select('.back-edges-layer').selectAll('path')
-        .filter(d => fadeUids.has(d.source.data.uid) || fadeUids.has(d.target.data.uid))
-        .transition()
-        .duration(ANIM_FADE_DURATION)
-        .style('opacity', 0);
+        .each(function(d) {
+            const el = d3.select(this);
+            const srcFinal = finalPositions.get(d.source.data.uid);
+            const tgtFinal = finalPositions.get(d.target.data.uid);
+            if (srcFinal && tgtFinal) {
+                // Both survive: transition path
+                el.transition().duration(duration)
+                    .attr('d', backEdgePathFromCoords(
+                        srcFinal.x, srcFinal.y,
+                        tgtFinal.x, tgtFinal.y, bezierLine));
+            } else {
+                // At least one redex endpoint: shrink towards target and fade
+                const sx = srcFinal ? srcFinal.x : shrinkTarget.x;
+                const sy = srcFinal ? srcFinal.y : shrinkTarget.y;
+                const tx = tgtFinal ? tgtFinal.x : shrinkTarget.x;
+                const ty = tgtFinal ? tgtFinal.y : shrinkTarget.y;
+                el.transition().duration(duration)
+                    .attr('d', backEdgePathFromCoords(sx, sy, tx, ty, bezierLine))
+                    .style('opacity', 0);
+            }
+        });
 }
 
 /**
@@ -246,8 +285,9 @@ function enableReduceButtons() {
 /**
  * Perform one beta reduction step with animated intermediate states.
  * Phase 1: Animate to the intermediate state (substituted but not collapsed).
- * Phase 1.5: Fade out nodes/edges that will be removed during collapse.
- * Phase 2: Collapse the redex and snap to the final layout.
+ *          Skipped when substitution creates no new nodes (no bound variables).
+ * Phase 2: Animated collapse — surviving nodes slide to final positions,
+ *          redex nodes shrink-fade towards the body's final position.
  */
 function update() {
     if (!data) return;
@@ -264,35 +304,61 @@ function update() {
         return;
     }
 
-    // Phase 1: animate to the intermediate state
+    // Check if substitution created any new nodes
+    const uidBefore = nextUid;
     assignUids(data);
+    const hasNewNodes = nextUid !== uidBefore;
     assignColors(data);
-    drawTree(data, true);
-    updateCurrentExpression();
+
     disableReduceButtons();
 
-    // Collect UIDs of nodes that will be removed during collapse:
-    // the application node, its lambda child, and the argument subtree
-    const fadeUids = new Set();
-    fadeUids.add(reduction.applicationNode.uid);
-    fadeUids.add(reduction.applicationNode.left.uid);
-    collectUids(reduction.applicationNode.right, fadeUids);
+    // Save the body root uid — this is the shrink-fade target
+    const bodyRootUid = reduction.reducedExpression.uid;
 
-    // Phase 1.5: after move animation + pause, fade out removed nodes
-    const fadeStart = ANIM_MOVE_DURATION + 600;
-    setTimeout(() => {
-        fadeOutNodes(fadeUids);
-    }, fadeStart);
-
-    // Phase 2: after fade completes, collapse and snap to final layout
-    setTimeout(() => {
+    // Phase 2: animated collapse (shared by both paths)
+    function startPhase2() {
+        // Collapse the redex and compute final layout
         copyInto(reduction.applicationNode, reduction.reducedExpression);
         assignUids(data);
         assignColors(data);
+
+        const finalRoot = d3.hierarchy(data, getChildren);
+        const treeLayout = d3.tree()
+            .size([width, height])
+            .separation((a, b) => (a.parent === b.parent ? 1 : 1.5));
+        treeLayout(finalRoot);
+
+        const finalPositions = new Map();
+        finalRoot.descendants().forEach(d => {
+            finalPositions.set(d.data.uid, { x: d.x, y: d.y });
+        });
+
+        const shrinkTarget = finalPositions.get(bodyRootUid)
+            || { x: width / 2, y: height / 2 };
+
+        animateCollapse(shrinkTarget, finalPositions);
+
+        // Clean redraw after animation completes
+        setTimeout(() => {
+            previousPositions = finalPositions;
+            drawTree(data);
+            updateCurrentExpression();
+            enableReduceButtons();
+        }, ANIM_MOVE_DURATION);
+    }
+
+    if (hasNewNodes) {
+        // Phase 1: animate to intermediate state, then Phase 2 after pause
+        drawTree(data, true);
+        updateCurrentExpression();
+        const phase2Start = ANIM_MOVE_DURATION + ANIM_FADE_DURATION + 600;
+        setTimeout(startPhase2, phase2Start);
+    } else {
+        // No new nodes — skip Phase 1, go straight to collapse
         drawTree(data);
         updateCurrentExpression();
-        enableReduceButtons();
-    }, fadeStart + ANIM_FADE_DURATION);
+        startPhase2();
+    }
 }
 
 /**
