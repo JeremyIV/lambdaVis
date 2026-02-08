@@ -17,6 +17,9 @@ let height = 600;
 const padding = 40;
 const ANIM_MOVE_DURATION = 800;   // ms for nodes/edges to move
 const ANIM_FADE_DURATION = 600;   // ms for removed nodes to fade out
+const ANIM_SHRINK_SCALE = 0.15;   // scale factor for argument mini-tree
+const ANIM_COPY_DURATION = 800;   // ms for copies to travel along ropes
+const NODE_RADII = { [VARIABLE]: 6, [LAMBDA]: 8, [APPLICATION]: 4 };
 
 // Color scale for lambda-variable relationships
 const lambdaColors = [
@@ -30,6 +33,46 @@ function getNextColor() {
     const color = lambdaColors[globalColorIndex % lambdaColors.length];
     globalColorIndex++;
     return color;
+}
+
+/**
+ * Linear interpolation between a and b by parameter t
+ */
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
+
+/**
+ * Flatten a tree into an array via pre-order traversal.
+ * Used to match argument nodes to copy nodes by structural position.
+ */
+function flattenTree(node) {
+    const result = [node];
+    if (node.type === LAMBDA && node.expression) {
+        result.push(...flattenTree(node.expression));
+    } else if (node.type === APPLICATION) {
+        if (node.left) result.push(...flattenTree(node.left));
+        if (node.right) result.push(...flattenTree(node.right));
+    }
+    return result;
+}
+
+/**
+ * Collect parent→child edge index pairs from a flattened tree array.
+ */
+function collectTreeEdgeIndices(flatNodes) {
+    const indexMap = new Map();
+    flatNodes.forEach((n, i) => indexMap.set(n, i));
+    const edges = [];
+    flatNodes.forEach((n, parentIdx) => {
+        if (n.type === LAMBDA && n.expression) {
+            edges.push({ srcIdx: parentIdx, tgtIdx: indexMap.get(n.expression) });
+        } else if (n.type === APPLICATION) {
+            if (n.left) edges.push({ srcIdx: parentIdx, tgtIdx: indexMap.get(n.left) });
+            if (n.right) edges.push({ srcIdx: parentIdx, tgtIdx: indexMap.get(n.right) });
+        }
+    });
+    return edges;
 }
 
 /**
@@ -269,8 +312,8 @@ function animateCollapse(shrinkTarget, finalPositions) {
             }
         });
 
-    // Animate back edges
-    svgGroup.select('.back-edges-layer').selectAll('path')
+    // Animate back edges (skip rope paths which lack D3 data bindings)
+    svgGroup.select('.back-edges-layer').selectAll('path:not(.rope)')
         .each(function(d) {
             const el = d3.select(this);
             const srcFinal = finalPositions.get(d.source.data.uid);
@@ -336,9 +379,14 @@ function enableReduceButtons() {
 
 /**
  * Perform one beta reduction step with animation.
- * Phase 1: Collapse — redex nodes shrink-fade away while surviving nodes
- *          slide directly to their final positions.
- * Phase 2: Substitution — newly created copies fade in at their final positions.
+ * Phase 1: Collapse — blue redex nodes shrink-fade away, green argument
+ *          shrinks to a mini-tree at the collapse origin, surviving body
+ *          nodes slide directly to their final positions. Rope curves
+ *          from the lambda to its bound variables are preserved.
+ * Phase 2: Copy travel — N miniature copies of the argument travel along
+ *          the rope curves from the collapse origin to each bound variable's
+ *          final position, scaling up to full size. Ropes shorten as
+ *          the copies move, disappearing when they arrive.
  */
 function update() {
     if (!data) return;
@@ -350,12 +398,30 @@ function update() {
     const reduction = findAndReduce(data, {});
 
     if (!reduction) {
-        // No reduction happened, remove the saved state
         previousData.pop();
         return;
     }
 
-    // Assign UIDs and colors to new nodes (substituted copies)
+    // --- Save pre-reduction info ---
+
+    const argument = reduction.applicationNode.right;
+    const argCopy = deepCopy(argument);
+    const argRootPos = previousPositions.get(argument.uid)
+        || { x: width / 2, y: height / 2 };
+    const lambdaUid = reduction.applicationNode.left.uid;
+
+    // Flatten argument subtree and compute relative positions
+    const argFlatNodes = flattenTree(argCopy);
+    const argEdgeIndices = collectTreeEdgeIndices(argFlatNodes);
+    const argRelPositions = argFlatNodes.map(n => {
+        const pos = previousPositions.get(n.uid);
+        return pos
+            ? { relX: pos.x - argRootPos.x, relY: pos.y - argRootPos.y }
+            : { relX: 0, relY: 0 };
+    });
+
+    // --- Perform reduction ---
+
     const uidBefore = nextUid;
     assignUids(data);
     const hasNewNodes = nextUid !== uidBefore;
@@ -363,7 +429,7 @@ function update() {
 
     disableReduceButtons();
 
-    // Identify redex (blue glow) and argument (green glow) nodes
+    // Identify redex and argument UIDs
     const redexUids = new Set([
         reduction.applicationNode.uid,
         reduction.applicationNode.left.uid
@@ -371,13 +437,24 @@ function update() {
     const argUids = new Set();
     collectUids(reduction.applicationNode.right, argUids);
 
+    // Find copy roots (mutated bound variables → substituted copy roots)
+    const copyRoots = [];
+    function findCopyRoots(node) {
+        if (node.replacedUid !== undefined) copyRoots.push(node);
+        if (node.type === LAMBDA && node.expression) findCopyRoots(node.expression);
+        if (node.type === APPLICATION) {
+            if (node.left) findCopyRoots(node.left);
+            if (node.right) findCopyRoots(node.right);
+        }
+    }
+    findCopyRoots(reduction.reducedExpression);
+
     // Highlight the redex on the current SVG
     highlightRedex(redexUids, argUids);
 
-    // Save the body root uid — this is the shrink-fade target
-    const bodyRootUid = reduction.reducedExpression.uid;
+    // --- Collapse ---
 
-    // Collapse the redex — data is now the final tree
+    const bodyRootUid = reduction.reducedExpression.uid;
     copyInto(reduction.applicationNode, reduction.reducedExpression);
     assignUids(data);
     assignColors(data);
@@ -397,36 +474,320 @@ function update() {
     const shrinkTarget = finalPositions.get(bodyRootUid)
         || { x: width / 2, y: height / 2 };
 
-    // Phase 1: Shrink-fade redex nodes, move surviving nodes to final positions
+    // Compute final back-edges to find connecting edges (copy → existing tree)
+    const finalBackEdges = computeBackEdges(finalRoot, {});
+
+    // Map each copy node UID to its copy root UID and flat index
+    const copyNodeInfo = new Map();
+    for (const cr of copyRoots) {
+        const flat = flattenTree(cr);
+        flat.forEach((n, i) => {
+            copyNodeInfo.set(n.uid, { copyRootUid: cr.uid, flatIndex: i });
+        });
+    }
+
+    // Back-edges from copy variables to existing lambdas
+    const connectingEdges = [];
+    for (const edge of finalBackEdges) {
+        const srcUid = edge.source.data.uid;
+        const tgtUid = edge.target.data.uid;
+        const srcInfo = copyNodeInfo.get(srcUid);
+        if (srcInfo && !copyNodeInfo.has(tgtUid)) {
+            const tgtPos = finalPositions.get(tgtUid);
+            if (tgtPos) {
+                connectingEdges.push({
+                    copyRootUid: srcInfo.copyRootUid,
+                    nodeIndex: srcInfo.flatIndex,
+                    targetPos: tgtPos,
+                    color: edge.source.data.color || '#a5b4fc'
+                });
+            }
+        }
+    }
+
+    // --- Phase 1: Animated collapse with argument mini-tree ---
+
+    const bezierLine = d3.line().curve(d3.curveCatmullRom.alpha(0.5));
+    const greenGlow = 'drop-shadow(0 0 6px #22c55e) drop-shadow(0 0 10px #22c55e)';
+
+    // 1. Extract argument elements from SVG → build overlay group
+    svgGroup.select('.nodes-layer').selectAll('circle')
+        .filter(d => argUids.has(d.data.uid))
+        .remove();
+
+    svgGroup.select('.tree-edges-layer').selectAll('line')
+        .filter(d => argUids.has(d.source.data.uid) && argUids.has(d.target.data.uid))
+        .remove();
+
+    const argBackEdgeInfo = [];
+    svgGroup.select('.back-edges-layer').selectAll('path')
+        .filter(function(d) {
+            if (argUids.has(d.source.data.uid) && argUids.has(d.target.data.uid)) {
+                argBackEdgeInfo.push({
+                    srcRelX: d.source.x - argRootPos.x,
+                    srcRelY: d.source.y - argRootPos.y,
+                    tgtRelX: d.target.x - argRootPos.x,
+                    tgtRelY: d.target.y - argRootPos.y,
+                    color: d3.select(this).style('stroke')
+                });
+                return true;
+            }
+            return false;
+        })
+        .remove();
+
+    // 2. Extract lambda→bound-variable back-edges, replace with controlled ropes
+    const ropeData = [];
+    svgGroup.select('.back-edges-layer').selectAll('path')
+        .filter(function(d) {
+            if (d.target.data.uid === lambdaUid) {
+                const copyRootUid = d.source.data.uid;
+                const targetFinalPos = finalPositions.get(copyRootUid);
+                if (targetFinalPos) {
+                    ropeData.push({
+                        sourceStartPos: { x: d.source.x, y: d.source.y },
+                        lambdaStartPos: { x: d.target.x, y: d.target.y },
+                        color: d3.select(this).style('stroke'),
+                        copyRootUid,
+                        targetFinalPos
+                    });
+                }
+                return true;
+            }
+            return false;
+        })
+        .remove();
+
+    const ropes = ropeData.map(r => {
+        const rope = svgGroup.select('.back-edges-layer').append('path')
+            .attr('class', 'back-edge rope')
+            .style('stroke', r.color)
+            .style('opacity', 0.6)
+            .attr('d', backEdgePathFromCoords(
+                r.lambdaStartPos.x, r.lambdaStartPos.y,
+                r.sourceStartPos.x, r.sourceStartPos.y, bezierLine));
+        rope.transition().duration(ANIM_MOVE_DURATION)
+            .attr('d', backEdgePathFromCoords(
+                shrinkTarget.x, shrinkTarget.y,
+                r.targetFinalPos.x, r.targetFinalPos.y, bezierLine));
+        return { rope, copyRootUid: r.copyRootUid, targetFinalPos: r.targetFinalPos, color: r.color };
+    });
+
+    // 3. Create argument overlay group (shrinks to mini-tree at shrinkTarget)
+    const argOverlay = svgGroup.append('g')
+        .attr('class', 'arg-overlay')
+        .attr('transform', `translate(${argRootPos.x},${argRootPos.y})`);
+
+    argBackEdgeInfo.forEach(be => {
+        argOverlay.append('path')
+            .attr('class', 'back-edge')
+            .style('stroke', be.color)
+            .style('opacity', 0.6)
+            .attr('d', backEdgePathFromCoords(
+                be.srcRelX, be.srcRelY,
+                be.tgtRelX, be.tgtRelY, bezierLine))
+            .style('filter', greenGlow);
+    });
+
+    argEdgeIndices.forEach(e => {
+        argOverlay.append('line')
+            .attr('x1', argRelPositions[e.srcIdx].relX)
+            .attr('y1', argRelPositions[e.srcIdx].relY)
+            .attr('x2', argRelPositions[e.tgtIdx].relX)
+            .attr('y2', argRelPositions[e.tgtIdx].relY)
+            .style('filter', greenGlow);
+    });
+
+    argFlatNodes.forEach((n, i) => {
+        const circle = argOverlay.append('circle')
+            .attr('cx', argRelPositions[i].relX)
+            .attr('cy', argRelPositions[i].relY)
+            .attr('r', NODE_RADII[n.type] || 6);
+        applyNodeStyle(circle, { type: n.type, color: n.color });
+        circle.style('filter', greenGlow);
+    });
+
+    argOverlay.transition().duration(ANIM_MOVE_DURATION)
+        .attr('transform',
+            `translate(${shrinkTarget.x},${shrinkTarget.y}) scale(${ANIM_SHRINK_SCALE})`);
+
+    // 4. Run animateCollapse on remaining SVG elements
     animateCollapse(shrinkTarget, finalPositions);
 
-    // Phase 2: After collapse completes, fade in new substituted copies
+    // --- Phase 2: Copy travel along ropes ---
+
     setTimeout(() => {
-        // Collect UIDs currently visible in the SVG — these are nodes that
-        // existed before the reduction (some mutated from bound variables
-        // into substituted copy roots, sliding to their new positions).
-        const visibleUids = new Set();
-        svgGroup.select('.nodes-layer').selectAll('circle')
-            .each(function(d) {
-                if (d.data.uid !== undefined) visibleUids.add(d.data.uid);
+        svgGroup.selectAll('.arg-overlay').remove();
+
+        if (copyRoots.length === 0 || ropes.length === 0) {
+            // No copies to animate — just clean up and redraw
+            ropes.forEach(r => r.rope.remove());
+            previousPositions = finalPositions;
+            drawTree(data);
+            updateCurrentExpression();
+            enableReduceButtons();
+            return;
+        }
+
+        const copyTravelData = [];
+
+        for (const copyRoot of copyRoots) {
+            const rope = ropes.find(r => r.copyRootUid === copyRoot.uid);
+            if (!rope) continue;
+
+            const targetPos = rope.targetFinalPos;
+            const copyFlatNodes = flattenTree(copyRoot);
+
+            // Per-node start/end offsets (relative to root) and radii
+            const nodeData = copyFlatNodes.map((cn, i) => {
+                const argRel = argRelPositions[i] || { relX: 0, relY: 0 };
+                const startOffsetX = argRel.relX * ANIM_SHRINK_SCALE;
+                const startOffsetY = argRel.relY * ANIM_SHRINK_SCALE;
+
+                const fp = finalPositions.get(cn.uid);
+                const endOffsetX = fp ? fp.x - targetPos.x : 0;
+                const endOffsetY = fp ? fp.y - targetPos.y : 0;
+
+                const endR = NODE_RADII[cn.type] || 6;
+                const startR = endR * ANIM_SHRINK_SCALE;
+
+                return {
+                    node: cn, argNode: argFlatNodes[i],
+                    startOffsetX, startOffsetY,
+                    endOffsetX, endOffsetY,
+                    startR, endR,
+                    circle: null
+                };
             });
 
-        // Only include visible UIDs in previousPositions so that drawTree
-        // treats genuinely new nodes (copy subtree children) as new.
-        const phase2Positions = new Map();
-        finalPositions.forEach((pos, uid) => {
-            if (visibleUids.has(uid)) {
-                phase2Positions.set(uid, pos);
+            const edgeData = argEdgeIndices.map(e => ({
+                srcIdx: e.srcIdx, tgtIdx: e.tgtIdx, line: null
+            }));
+
+            // Create SVG elements for this traveling copy
+            const copyGroup = svgGroup.append('g').attr('class', 'copy-travel');
+
+            edgeData.forEach(e => {
+                e.line = copyGroup.append('line')
+                    .attr('x1', shrinkTarget.x + nodeData[e.srcIdx].startOffsetX)
+                    .attr('y1', shrinkTarget.y + nodeData[e.srcIdx].startOffsetY)
+                    .attr('x2', shrinkTarget.x + nodeData[e.tgtIdx].startOffsetX)
+                    .attr('y2', shrinkTarget.y + nodeData[e.tgtIdx].startOffsetY);
+            });
+
+            nodeData.forEach(nd => {
+                nd.circle = copyGroup.append('circle')
+                    .attr('cx', shrinkTarget.x + nd.startOffsetX)
+                    .attr('cy', shrinkTarget.y + nd.startOffsetY)
+                    .attr('r', nd.startR);
+                applyNodeStyle(nd.circle, { type: nd.node.type, color: nd.node.color });
+            });
+
+            // Create connecting back-edges (copy variable → existing lambda)
+            const connEdges = connectingEdges
+                .filter(ce => ce.copyRootUid === copyRoot.uid)
+                .map(ce => {
+                    const nd = nodeData[ce.nodeIndex];
+                    const srcX = shrinkTarget.x + nd.startOffsetX;
+                    const srcY = shrinkTarget.y + nd.startOffsetY;
+                    const path = copyGroup.append('path')
+                        .attr('class', 'back-edge')
+                        .style('stroke', ce.color)
+                        .style('opacity', 0.6)
+                        .attr('d', backEdgePathFromCoords(
+                            srcX, srcY,
+                            ce.targetPos.x, ce.targetPos.y, bezierLine));
+                    return { path, nodeIndex: ce.nodeIndex, targetPos: ce.targetPos };
+                });
+
+            // Hidden path for sampling positions along the rope curve
+            const samplePathStr = backEdgePathFromCoords(
+                shrinkTarget.x, shrinkTarget.y,
+                targetPos.x, targetPos.y, bezierLine);
+            const samplePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            samplePath.setAttribute('d', samplePathStr);
+            samplePath.style.visibility = 'hidden';
+            svgGroup.node().appendChild(samplePath);
+
+            copyTravelData.push({
+                copyGroup, rope: rope.rope, targetPos,
+                nodeData, edgeData, connEdges, samplePath
+            });
+        }
+
+        if (copyTravelData.length === 0) {
+            ropes.forEach(r => r.rope.remove());
+            previousPositions = finalPositions;
+            drawTree(data);
+            updateCurrentExpression();
+            enableReduceButtons();
+            return;
+        }
+
+        // Animate all copies traveling along their ropes
+        const timer = d3.timer(elapsed => {
+            const t = Math.min(elapsed / ANIM_COPY_DURATION, 1);
+            const ease = d3.easeCubicInOut(t);
+
+            for (const copy of copyTravelData) {
+                // Root follows the rope curve
+                const pathLen = copy.samplePath.getTotalLength();
+                const pt = copy.samplePath.getPointAtLength(ease * pathLen);
+                const rootX = pt.x;
+                const rootY = pt.y;
+
+                // Shorten the rope (source end follows copy root)
+                copy.rope.attr('d', backEdgePathFromCoords(
+                    rootX, rootY,
+                    copy.targetPos.x, copy.targetPos.y, bezierLine));
+
+                // Update node positions and radii
+                for (const nd of copy.nodeData) {
+                    const ox = lerp(nd.startOffsetX, nd.endOffsetX, ease);
+                    const oy = lerp(nd.startOffsetY, nd.endOffsetY, ease);
+                    const r = lerp(nd.startR, nd.endR, ease);
+                    nd.circle
+                        .attr('cx', rootX + ox)
+                        .attr('cy', rootY + oy)
+                        .attr('r', r);
+                }
+
+                // Update tree edge positions
+                for (const e of copy.edgeData) {
+                    const sNd = copy.nodeData[e.srcIdx];
+                    const tNd = copy.nodeData[e.tgtIdx];
+                    e.line
+                        .attr('x1', rootX + lerp(sNd.startOffsetX, sNd.endOffsetX, ease))
+                        .attr('y1', rootY + lerp(sNd.startOffsetY, sNd.endOffsetY, ease))
+                        .attr('x2', rootX + lerp(tNd.startOffsetX, tNd.endOffsetX, ease))
+                        .attr('y2', rootY + lerp(tNd.startOffsetY, tNd.endOffsetY, ease));
+                }
+
+                // Update connecting back-edges (copy variable → existing lambda)
+                for (const ce of copy.connEdges) {
+                    const nd = copy.nodeData[ce.nodeIndex];
+                    const srcX = rootX + lerp(nd.startOffsetX, nd.endOffsetX, ease);
+                    const srcY = rootY + lerp(nd.startOffsetY, nd.endOffsetY, ease);
+                    ce.path.attr('d', backEdgePathFromCoords(
+                        srcX, srcY,
+                        ce.targetPos.x, ce.targetPos.y, bezierLine));
+                }
+            }
+
+            if (t >= 1) {
+                timer.stop();
+                for (const copy of copyTravelData) {
+                    copy.copyGroup.remove();
+                    copy.samplePath.remove();
+                }
+                ropes.forEach(r => r.rope.remove());
+
+                previousPositions = finalPositions;
+                drawTree(data);
+                updateCurrentExpression();
+                enableReduceButtons();
             }
         });
-        previousPositions = phase2Positions;
-
-        // Redraw: existing nodes snap to position, new nodes fade in
-        drawTree(data, hasNewNodes, 0);
-        updateCurrentExpression();
-
-        // Re-enable buttons after fade-in completes
-        setTimeout(enableReduceButtons, hasNewNodes ? ANIM_FADE_DURATION : 0);
     }, ANIM_MOVE_DURATION);
 }
 
