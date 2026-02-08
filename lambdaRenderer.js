@@ -167,6 +167,58 @@ function assignUids(node) {
 }
 
 /**
+ * Collect all UIDs from a subtree into a Set
+ */
+function collectUids(node, uidSet) {
+    if (!node) return;
+    if (node.uid) uidSet.add(node.uid);
+    if (node.type === LAMBDA && node.expression) {
+        collectUids(node.expression, uidSet);
+    } else if (node.type === APPLICATION) {
+        if (node.left) collectUids(node.left, uidSet);
+        if (node.right) collectUids(node.right, uidSet);
+    }
+}
+
+/**
+ * Apply glow highlights to the redex (blue) and argument (green) nodes and edges
+ */
+function highlightRedex(redexUids, argUids) {
+    const blueGlow = 'drop-shadow(0 0 6px #3b82f6) drop-shadow(0 0 10px #3b82f6)';
+    const greenGlow = 'drop-shadow(0 0 6px #22c55e) drop-shadow(0 0 10px #22c55e)';
+
+    // Helper: pick glow for an element based on its UIDs
+    function glowFor(uids) {
+        const hasRedex = uids.some(u => redexUids.has(u));
+        const hasArg = uids.some(u => argUids.has(u));
+        if (hasRedex) return blueGlow;
+        if (hasArg) return greenGlow;
+        return null;
+    }
+
+    // Nodes
+    svgGroup.select('.nodes-layer').selectAll('circle')
+        .each(function(d) {
+            const glow = glowFor([d.data.uid]);
+            if (glow) d3.select(this).style('filter', glow);
+        });
+
+    // Tree edges
+    svgGroup.select('.tree-edges-layer').selectAll('line')
+        .each(function(d) {
+            const glow = glowFor([d.source.data.uid, d.target.data.uid]);
+            if (glow) d3.select(this).style('filter', glow);
+        });
+
+    // Back edges
+    svgGroup.select('.back-edges-layer').selectAll('path')
+        .each(function(d) {
+            const glow = glowFor([d.source.data.uid, d.target.data.uid]);
+            if (glow) d3.select(this).style('filter', glow);
+        });
+}
+
+/**
  * Animate the collapse from intermediate state to final state.
  * Surviving nodes slide to final positions; redex nodes shrink-fade
  * towards the shrink target (the body's final position).
@@ -315,6 +367,14 @@ function update() {
     // Save the body root uid — this is the shrink-fade target
     const bodyRootUid = reduction.reducedExpression.uid;
 
+    // Identify redex (blue glow) and argument (green glow) nodes
+    const redexUids = new Set([
+        reduction.applicationNode.uid,
+        reduction.applicationNode.left.uid
+    ]);
+    const argUids = new Set();
+    collectUids(reduction.applicationNode.right, argUids);
+
     // Phase 2: animated collapse (shared by both paths)
     function startPhase2() {
         // Collapse the redex and compute final layout
@@ -348,14 +408,16 @@ function update() {
     }
 
     if (hasNewNodes) {
-        // Phase 1: animate to intermediate state, then Phase 2 after pause
+        // Phase 1: animate to intermediate state, then Phase 2 immediately after
         drawTree(data, true);
+        highlightRedex(redexUids, argUids);
         updateCurrentExpression();
-        const phase2Start = ANIM_MOVE_DURATION + ANIM_FADE_DURATION + 600;
+        const phase2Start = ANIM_MOVE_DURATION + ANIM_FADE_DURATION;
         setTimeout(startPhase2, phase2Start);
     } else {
         // No new nodes — skip Phase 1, go straight to collapse
         drawTree(data);
+        highlightRedex(redexUids, argUids);
         updateCurrentExpression();
         startPhase2();
     }
