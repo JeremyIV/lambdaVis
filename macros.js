@@ -6,6 +6,9 @@
  * Macros expand by textual substitution before parsing.
  */
 
+// Stores the most recently expanded macro definitions { name, body }
+let lastExpandedMacros = [];
+
 /**
  * Replace all whole-token occurrences of `name` in `str` with `(body)`.
  * Token boundaries: start/end of string, whitespace, parens, colon, dot, equals.
@@ -52,6 +55,8 @@ function expandMacros(input) {
             exprLines.push(line);
         }
     }
+
+    lastExpandedMacros = macros;
 
     // If there are no expression lines, return input unchanged (single-line, no macros)
     if (exprLines.length === 0) return input.trim();

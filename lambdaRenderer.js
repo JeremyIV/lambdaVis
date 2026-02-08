@@ -21,6 +21,9 @@ const ANIM_SHRINK_SCALE = 0.15;   // scale factor for argument mini-tree
 const ANIM_COPY_DURATION = 800;   // ms for copies to travel along ropes
 const NODE_RADII = { [VARIABLE]: 6, [LAMBDA]: 8, [APPLICATION]: 4 };
 
+// Active macro definitions for labeling nodes { name, ast }
+let activeMacros = [];
+
 // Color scale for lambda-variable relationships
 const lambdaColors = [
     '#4f46e5', '#0891b2', '#059669', '#d97706', '#dc2626',
@@ -90,6 +93,7 @@ function initialize() {
     // Load default expression
     nextUid = 1;
     globalColorIndex = 0;
+    activeMacros = [];
     previousPositions = new Map();
     const defaultExpr = '(:x y.x)(:x y.y)';
     document.getElementById('lambdaString').value = defaultExpr;
@@ -125,6 +129,7 @@ function createSvg() {
     svgGroup.append('g').attr('class', 'back-edges-layer');
     svgGroup.append('g').attr('class', 'tree-edges-layer');
     svgGroup.append('g').attr('class', 'nodes-layer');
+    svgGroup.append('g').attr('class', 'labels-layer');
 }
 
 /**
@@ -428,6 +433,9 @@ function update() {
     assignColors(data);
 
     disableReduceButtons();
+
+    // Clear macro labels during animation
+    svgGroup.select('.labels-layer').selectAll('*').remove();
 
     // Identify redex and argument UIDs
     const redexUids = new Set([
@@ -792,17 +800,33 @@ function update() {
 }
 
 /**
- * Update tooltips on all nodes
+ * Update tooltips on all nodes to show the sub-expression string on hover
  */
 function updateTooltips() {
+    let tooltip = document.getElementById('node-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'node-tooltip';
+        document.getElementById('tree-container').appendChild(tooltip);
+    }
+
     const nodeLayer = svgGroup.select('.nodes-layer');
     nodeLayer.selectAll('circle').select('title').remove();
     nodeLayer.selectAll('circle')
-        .append('title')
-        .text(d => {
-            if (d.data.type === LAMBDA) return `λ${d.data.id}`;
-            if (d.data.type === VARIABLE) return d.data.id;
-            return '@';
+        .on('mouseenter', function(event, d) {
+            tooltip.textContent = expressionToString(d.data);
+            tooltip.style.display = 'block';
+            const rect = document.getElementById('tree-container').getBoundingClientRect();
+            tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
+            tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
+        })
+        .on('mousemove', function(event) {
+            const rect = document.getElementById('tree-container').getBoundingClientRect();
+            tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
+            tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
+        })
+        .on('mouseleave', function() {
+            tooltip.style.display = 'none';
         });
 }
 
@@ -853,8 +877,20 @@ function parseAndLoad() {
     }
 
     const lambdaString = expandMacros(rawInput);
+
+    // Parse macro bodies into ASTs for label matching
+    activeMacros = [];
+    for (const m of lastExpandedMacros) {
+        try {
+            const ast = parseExpression([m.body]);
+            activeMacros.push({ name: m.name, ast });
+        } catch (e) {
+            // skip unparseable macros
+        }
+    }
+
     const consumableString = [lambdaString];
-    
+
     try {
         data = parseExpression(consumableString);
         const remainingUnparsed = consumableString[0].trim();
@@ -891,6 +927,31 @@ function getChildren(node) {
 }
 
 /**
+ * Find the first macro whose AST is alpha-equivalent to this node.
+ */
+function findMacroLabel(node) {
+    for (const macro of activeMacros) {
+        if (alphaEquivalent(node, macro.ast)) {
+            return macro.name;
+        }
+    }
+    return null;
+}
+
+/**
+ * Annotate every node in the tree with a macroLabel property.
+ */
+function annotateMacroLabels(node) {
+    node.macroLabel = findMacroLabel(node);
+    if (node.type === LAMBDA && node.expression) {
+        annotateMacroLabels(node.expression);
+    } else if (node.type === APPLICATION) {
+        if (node.left) annotateMacroLabels(node.left);
+        if (node.right) annotateMacroLabels(node.right);
+    }
+}
+
+/**
  * Draw the expression tree
  * @param {Object} treeData - The expression tree to render
  * @param {boolean} animate - If true, animate nodes from previous positions
@@ -900,10 +961,16 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
         createSvg();
     }
 
+    // Annotate macro labels
+    if (activeMacros.length > 0) {
+        annotateMacroLabels(treeData);
+    }
+
     // Clear existing elements
     svgGroup.select('.tree-edges-layer').selectAll('*').remove();
     svgGroup.select('.back-edges-layer').selectAll('*').remove();
     svgGroup.select('.nodes-layer').selectAll('*').remove();
+    svgGroup.select('.labels-layer').selectAll('*').remove();
 
     // Create hierarchy
     const root = d3.hierarchy(treeData, getChildren);
@@ -1051,6 +1118,20 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
 
     // Update tooltips
     updateTooltips();
+
+    // Draw macro labels
+    if (activeMacros.length > 0) {
+        const labelLayer = svgGroup.select('.labels-layer');
+        const labelData = nodes.filter(d => d.data.macroLabel);
+        labelLayer.selectAll('text')
+            .data(labelData)
+            .enter()
+            .append('text')
+            .attr('class', 'macro-label')
+            .attr('x', d => d.x)
+            .attr('y', d => d.y - (NODE_RADII[d.data.type] || 6) - 6)
+            .text(d => d.data.macroLabel);
+    }
 
     // Save positions for next animated draw
     const newPositions = new Map();

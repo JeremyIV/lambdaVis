@@ -122,49 +122,43 @@ const EXPRESSIONS = {
 // Examples that demonstrate interesting reductions
 const EXAMPLES = [
     {
-        name: 'TRUE FALSE',
-        description: 'Apply TRUE to FALSE - reduces to first argument',
-        expression: '(:x y.x) (:a b.b)'
-    },
-    {
-        name: 'NOT TRUE',
-        description: 'Negate TRUE - reduces to FALSE',
-        expression: '(:p.p (:x y.y) (:x y.x)) (:a b.a)'
-    },
-    {
-        name: 'SUCC 1',
-        description: 'Successor of 1 - reduces to 2',
-        expression: '(:n f x.f (n f x)) (:f x.f x)'
-    },
-    {
-        name: '1 + 1',
-        description: 'Add two ones',
-        expression: '(:m n f x.m f (n f x)) (:f x.f x) (:f x.f x)'
-    },
-    {
         name: 'Identity',
-        description: 'Identity combinator applied to itself',
+        description: 'Identity combinator applied to itself — reduces to (:x.x)',
         expression: '(:x.x) (:x.x)'
     },
     {
-        name: 'K combinator',
-        description: 'K applied to two terms',
-        expression: '(:x y.x) a b'
+        name: 'Boolean Logic',
+        description: 'NOT (AND TRUE FALSE) using Church booleans — reduces to TRUE',
+        expression: [
+            'TRUE = :x y.x',
+            'FALSE = :x y.y',
+            'NOT = :p.p FALSE TRUE',
+            'AND = :p q.p q p',
+            'OR = :p q.p p q',
+            'NOT (AND TRUE FALSE)'
+        ].join('\n')
     },
     {
-        name: 'Y Y',
-        description: 'Y combinator applied to itself',
-        expression: '(:f.(:x.f (x x)) (:x.f (x x))) (:f.(:x.f (x x)) (:x.f (x x)))'
-    },
-    {
-        name: 'NOT TRUE (macro)',
-        description: 'Boolean NOT TRUE using macros — expand editor to see definitions',
-        expression: 'TRUE = :x y.x\nFALSE = :x y.y\nNOT = :p.p FALSE TRUE\nNOT TRUE'
-    },
-    {
-        name: '2 + 2 (macro)',
-        description: 'Church arithmetic 2+2 using macros',
-        expression: '+ = :m n f x.m f (n f x)\n2 = :f x.f (f x)\n+ 2 2'
+        name: 'Arithmetic',
+        description: 'Church numeral addition 2 + 3 — reduces to 5',
+        expression: [
+            '0 = :f x.x',
+            '1 = :f x.f x',
+            '2 = :f x.f (f x)',
+            '3 = :f x.f (f (f x))',
+            '4 = :f x.f (f (f (f x)))',
+            '5 = :f x.f (f (f (f (f x))))',
+            '6 = :f x.f (f (f (f (f (f x)))))',
+            '7 = :f x.f (f (f (f (f (f (f x))))))',
+            '8 = :f x.f (f (f (f (f (f (f (f x)))))))',
+            '9 = :f x.f (f (f (f (f (f (f (f (f x))))))))',
+            '10 = :f x.f (f (f (f (f (f (f (f (f (f x)))))))))',
+            'SUCC = :n f x.f (n f x)',
+            '+ = :m n f x.m f (n f x)',
+            'PRED = :n f x.n (:g h.h (g f)) (:u.x) (:u.u)',
+            '- = :m n.n PRED m',
+            '+ 2 3'
+        ].join('\n')
     }
 ];
 
@@ -181,9 +175,13 @@ function populateExamples() {
         const item = document.createElement('div');
         item.className = 'example-item';
         item.title = example.description;
+        // For multi-line macro examples, show the main expression (last line)
+        const displayExpr = example.expression.includes('\n')
+            ? example.expression.split('\n').filter(l => l.trim()).pop()
+            : example.expression;
         item.innerHTML = `
             <span class="example-name">${example.name}</span>
-            <span class="example-code">${truncate(example.expression, 20)}</span>
+            <span class="example-code">${truncate(displayExpr, 20)}</span>
         `;
         item.addEventListener('click', () => loadExample(example.expression));
         container.appendChild(item);

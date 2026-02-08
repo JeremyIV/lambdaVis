@@ -25,3 +25,37 @@ function copyInto(target, source) {
 		target[key] = source[key];
 	}
 }
+
+/**
+ * Check if two lambda calculus expressions are alpha-equivalent
+ * (structurally identical up to consistent renaming of bound variables).
+ */
+function alphaEquivalent(a, b) {
+	return alphaEquivHelper(a, b, {}, {});
+}
+
+function alphaEquivHelper(a, b, aToB, bToA) {
+	if (a.type !== b.type) return false;
+
+	if (a.type === VARIABLE) {
+		const aMapped = aToB[a.id];
+		const bMapped = bToA[b.id];
+		if (aMapped !== undefined || bMapped !== undefined) {
+			return aMapped === b.id && bMapped === a.id;
+		}
+		return a.id === b.id;
+	}
+
+	if (a.type === LAMBDA) {
+		const newAToB = { ...aToB, [a.id]: b.id };
+		const newBToA = { ...bToA, [b.id]: a.id };
+		return alphaEquivHelper(a.expression, b.expression, newAToB, newBToA);
+	}
+
+	if (a.type === APPLICATION) {
+		return alphaEquivHelper(a.left, b.left, aToB, bToA) &&
+		       alphaEquivHelper(a.right, b.right, aToB, bToA);
+	}
+
+	return false;
+}

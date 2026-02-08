@@ -172,6 +172,14 @@ body.editor-expanded main {
     flex: none;
 }
 
+body.editor-expanded .controls {
+    flex-direction: column;
+}
+
+body.editor-expanded .expand-btn {
+    align-self: flex-start;
+}
+
 body.editor-expanded .content {
     overflow: visible;
     height: 100vh;
@@ -446,6 +454,32 @@ svg circle.application {
     stroke: var(--node-application);
     stroke-width: 2px;
     r: 4px;
+}
+
+/* Macro labels on nodes */
+svg text.macro-label {
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 0.6875rem;
+    fill: var(--text-muted);
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+/* Node hover tooltip */
+#node-tooltip {
+    display: none;
+    position: absolute;
+    padding: 0.375rem 0.625rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 0.8125rem;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    box-shadow: 0 2px 8px var(--shadow);
 }
 
 /* Responsive adjustments */

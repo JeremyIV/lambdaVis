@@ -24,9 +24,9 @@
             <div class="input-group">
                 <textarea id="lambdaString" rows="1" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false"></textarea>
                 <button type="button" id="expand-btn" class="expand-btn" title="Expand to multi-line editor">&#x25BC;</button>
-                <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
             </div>
             <div class="button-group">
+                <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
                 <button type="button" id="reduce-btn" onclick="update()">Beta Reduce</button>
                 <button type="button" id="back-btn" onclick="goBack()">Go Back</button>
             </div>
