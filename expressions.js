@@ -150,6 +150,21 @@ const EXAMPLES = [
         name: 'K combinator',
         description: 'K applied to two terms',
         expression: '(:x y.x) a b'
+    },
+    {
+        name: 'Y Y',
+        description: 'Y combinator applied to itself',
+        expression: '(:f.(:x.f (x x)) (:x.f (x x))) (:f.(:x.f (x x)) (:x.f (x x)))'
+    },
+    {
+        name: 'NOT TRUE (macro)',
+        description: 'Boolean NOT TRUE using macros — expand editor to see definitions',
+        expression: 'TRUE = :x y.x\nFALSE = :x y.y\nNOT = :p.p FALSE TRUE\nNOT TRUE'
+    },
+    {
+        name: '2 + 2 (macro)',
+        description: 'Church arithmetic 2+2 using macros',
+        expression: '+ = :m n f x.m f (n f x)\n2 = :f x.f (f x)\n+ 2 2'
     }
 ];
 
@@ -182,6 +197,10 @@ function loadExample(expression) {
     const input = document.getElementById('lambdaString');
     if (input) {
         input.value = expression;
+    }
+    // Auto-expand editor for multi-line macro examples
+    if (expression.includes('\n') && typeof expanded !== 'undefined' && !expanded) {
+        document.getElementById('expand-btn').click();
     }
     parseAndLoad();
 }

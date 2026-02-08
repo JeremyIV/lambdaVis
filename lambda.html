@@ -6,6 +6,7 @@
     <title>Lambda Calculus Visualizer</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="common.js"></script>
+    <script src="macros.js"></script>
     <script src="parseChurchLambdaString.js"></script>
     <script src="churchLambdaToString.js"></script>
     <script src="lambdaCalculus.js"></script>
@@ -21,7 +22,8 @@
     <main>
         <div class="controls">
             <div class="input-group">
-                <input type="text" id="lambdaString" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false">
+                <textarea id="lambdaString" rows="1" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false"></textarea>
+                <button type="button" id="expand-btn" class="expand-btn" title="Expand to multi-line editor">&#x25BC;</button>
                 <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
             </div>
             <div class="button-group">
@@ -94,12 +96,41 @@
     <script>
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', initialize);
-        
-        // Handle Enter key in input
-        document.getElementById('lambdaString').addEventListener('keypress', function(e) {
+
+        const lambdaInput = document.getElementById('lambdaString');
+        const expandBtn = document.getElementById('expand-btn');
+        let expanded = false;
+
+        // Handle keyboard in textarea
+        lambdaInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
-                parseAndLoad();
+                if (!expanded) {
+                    // Single-line mode: Enter submits
+                    e.preventDefault();
+                    parseAndLoad();
+                } else if (e.ctrlKey || e.metaKey) {
+                    // Multi-line mode: Ctrl/Cmd+Enter submits
+                    e.preventDefault();
+                    parseAndLoad();
+                }
             }
+        });
+
+        // Toggle expand/collapse
+        expandBtn.addEventListener('click', function() {
+            expanded = !expanded;
+            document.body.classList.toggle('editor-expanded', expanded);
+            lambdaInput.classList.toggle('expanded', expanded);
+            expandBtn.classList.toggle('expanded', expanded);
+            expandBtn.innerHTML = expanded ? '&#x25B2;' : '&#x25BC;';
+            expandBtn.title = expanded ? 'Collapse to single line' : 'Expand to multi-line editor';
+            if (expanded) {
+                lambdaInput.style.resize = 'vertical';
+            } else {
+                lambdaInput.style.resize = 'none';
+                lambdaInput.style.height = '';
+            }
+            lambdaInput.focus();
         });
     </script>
 </body>

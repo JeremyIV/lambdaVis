@@ -477,13 +477,14 @@ function parseAndLoad() {
     previousPositions = new Map();
     
     const input = document.getElementById('lambdaString');
-    const lambdaString = input ? input.value.trim() : '';
-    
-    if (!lambdaString) {
+    const rawInput = input ? input.value.trim() : '';
+
+    if (!rawInput) {
         alert('Please enter a lambda expression');
         return;
     }
-    
+
+    const lambdaString = expandMacros(rawInput);
     const consumableString = [lambdaString];
     
     try {

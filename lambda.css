@@ -111,7 +111,7 @@ main {
     gap: 0.5rem;
 }
 
-.input-group input {
+.input-group textarea {
     flex: 1;
     padding: 0.625rem 1rem;
     font-size: 0.9375rem;
@@ -122,15 +122,67 @@ main {
     color: var(--text-primary);
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.4;
+    field-sizing: content;
+    max-height: 2.3em;
 }
 
-.input-group input:focus {
+.input-group textarea.expanded {
+    overflow: auto;
+    min-height: 6em;
+    max-height: none;
+    white-space: pre-wrap;
+}
+
+.input-group textarea:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
-.input-group input::placeholder {
+.input-group textarea::placeholder {
     color: var(--text-muted);
+}
+
+.expand-btn {
+    padding: 0.625rem 0.5rem;
+    font-size: 0.7rem;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.expand-btn:hover {
+    background: var(--border);
+}
+
+.expand-btn.expanded {
+    color: var(--accent);
+}
+
+/* Expanded editor: page becomes scrollable, tree keeps full viewport height */
+body.editor-expanded {
+    overflow: auto;
+}
+
+body.editor-expanded main {
+    overflow: visible;
+    flex: none;
+}
+
+body.editor-expanded .content {
+    overflow: visible;
+    height: 100vh;
+}
+
+body.editor-expanded #tree-container {
+    overflow: hidden;
+}
+
+body.editor-expanded .sidebar {
+    overflow-y: visible;
 }
 
 .button-group {
