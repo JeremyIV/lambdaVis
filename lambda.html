@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lambda Calculus Visualizer</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="common.js"></script>
+    <script src="parseChurchLambdaString.js"></script>
+    <script src="churchLambdaToString.js"></script>
+    <script src="lambdaCalculus.js"></script>
+    <script src="expressions.js"></script>
+    <script src="lambdaRenderer.js"></script>
+    <link rel="stylesheet" href="lambda.css">
+</head>
+<body>
+    <header>
+        <h1>Lambda Calculus Visualizer</h1>
+    </header>
+    
+    <main>
+        <div class="controls">
+            <div class="input-group">
+                <input type="text" id="lambdaString" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false">
+                <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
+            </div>
+            <div class="button-group">
+                <button type="button" id="reduce-btn" onclick="update()">Beta Reduce</button>
+                <button type="button" id="back-btn" onclick="goBack()">Go Back</button>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div id="tree-container">
+                <!-- SVG will be inserted here -->
+            </div>
+            
+            <aside class="sidebar">
+                <section class="current-expression">
+                    <h3>Current Expression</h3>
+                    <code id="current-expr">-</code>
+                </section>
+                
+                <section class="examples">
+                    <h3>Examples</h3>
+                    <div class="example-list" id="example-list">
+                        <!-- Examples will be populated by JavaScript -->
+                    </div>
+                </section>
+                
+                <section class="syntax-help">
+                    <h3>Syntax</h3>
+                    <dl>
+                        <dt><code>:x.body</code></dt>
+                        <dd>Lambda (λx.body)</dd>
+                        <dt><code>:x y.body</code></dt>
+                        <dd>Multi-param lambda</dd>
+                        <dt><code>f x</code></dt>
+                        <dd>Application (f applied to x)</dd>
+                        <dt><code>(expr)</code></dt>
+                        <dd>Grouping</dd>
+                    </dl>
+                </section>
+                
+                <section class="legend">
+                    <h3>Legend</h3>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <span class="legend-circle lambda"></span>
+                            <span>Lambda (λ)</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-circle variable"></span>
+                            <span>Variable</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-circle application"></span>
+                            <span>Application</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-line"></span>
+                            <span>Tree edge</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-curve"></span>
+                            <span>Variable binding</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </div>
+    </main>
+    
+    <script>
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initialize);
+        
+        // Handle Enter key in input
+        document.getElementById('lambdaString').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                parseAndLoad();
+            }
+        });
+    </script>
+</body>
+</html>
