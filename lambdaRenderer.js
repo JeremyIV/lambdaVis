@@ -335,11 +335,10 @@ function enableReduceButtons() {
 }
 
 /**
- * Perform one beta reduction step with animated intermediate states.
- * Phase 1: Animate to the intermediate state (substituted but not collapsed).
- *          Skipped when substitution creates no new nodes (no bound variables).
- * Phase 2: Animated collapse — surviving nodes slide to final positions,
- *          redex nodes shrink-fade towards the body's final position.
+ * Perform one beta reduction step with animation.
+ * Phase 1: Collapse — redex nodes shrink-fade away while surviving nodes
+ *          slide directly to their final positions.
+ * Phase 2: Substitution — newly created copies fade in at their final positions.
  */
 function update() {
     if (!data) return;
@@ -356,16 +355,13 @@ function update() {
         return;
     }
 
-    // Check if substitution created any new nodes
+    // Assign UIDs and colors to new nodes (substituted copies)
     const uidBefore = nextUid;
     assignUids(data);
     const hasNewNodes = nextUid !== uidBefore;
     assignColors(data);
 
     disableReduceButtons();
-
-    // Save the body root uid — this is the shrink-fade target
-    const bodyRootUid = reduction.reducedExpression.uid;
 
     // Identify redex (blue glow) and argument (green glow) nodes
     const redexUids = new Set([
@@ -375,52 +371,63 @@ function update() {
     const argUids = new Set();
     collectUids(reduction.applicationNode.right, argUids);
 
-    // Phase 2: animated collapse (shared by both paths)
-    function startPhase2() {
-        // Collapse the redex and compute final layout
-        copyInto(reduction.applicationNode, reduction.reducedExpression);
-        assignUids(data);
-        assignColors(data);
+    // Highlight the redex on the current SVG
+    highlightRedex(redexUids, argUids);
 
-        const finalRoot = d3.hierarchy(data, getChildren);
-        const treeLayout = d3.tree()
-            .size([width, height])
-            .separation((a, b) => (a.parent === b.parent ? 1 : 1.5));
-        treeLayout(finalRoot);
+    // Save the body root uid — this is the shrink-fade target
+    const bodyRootUid = reduction.reducedExpression.uid;
 
-        const finalPositions = new Map();
-        finalRoot.descendants().forEach(d => {
-            finalPositions.set(d.data.uid, { x: d.x, y: d.y });
+    // Collapse the redex — data is now the final tree
+    copyInto(reduction.applicationNode, reduction.reducedExpression);
+    assignUids(data);
+    assignColors(data);
+
+    // Compute final layout
+    const finalRoot = d3.hierarchy(data, getChildren);
+    const treeLayout = d3.tree()
+        .size([width, height])
+        .separation((a, b) => (a.parent === b.parent ? 1 : 1.5));
+    treeLayout(finalRoot);
+
+    const finalPositions = new Map();
+    finalRoot.descendants().forEach(d => {
+        finalPositions.set(d.data.uid, { x: d.x, y: d.y });
+    });
+
+    const shrinkTarget = finalPositions.get(bodyRootUid)
+        || { x: width / 2, y: height / 2 };
+
+    // Phase 1: Shrink-fade redex nodes, move surviving nodes to final positions
+    animateCollapse(shrinkTarget, finalPositions);
+
+    // Phase 2: After collapse completes, fade in new substituted copies
+    setTimeout(() => {
+        // Collect UIDs currently visible in the SVG — these are nodes that
+        // existed before the reduction (some mutated from bound variables
+        // into substituted copy roots, sliding to their new positions).
+        const visibleUids = new Set();
+        svgGroup.select('.nodes-layer').selectAll('circle')
+            .each(function(d) {
+                if (d.data.uid !== undefined) visibleUids.add(d.data.uid);
+            });
+
+        // Only include visible UIDs in previousPositions so that drawTree
+        // treats genuinely new nodes (copy subtree children) as new.
+        const phase2Positions = new Map();
+        finalPositions.forEach((pos, uid) => {
+            if (visibleUids.has(uid)) {
+                phase2Positions.set(uid, pos);
+            }
         });
+        previousPositions = phase2Positions;
 
-        const shrinkTarget = finalPositions.get(bodyRootUid)
-            || { x: width / 2, y: height / 2 };
-
-        animateCollapse(shrinkTarget, finalPositions);
-
-        // Clean redraw after animation completes
-        setTimeout(() => {
-            previousPositions = finalPositions;
-            drawTree(data);
-            updateCurrentExpression();
-            enableReduceButtons();
-        }, ANIM_MOVE_DURATION);
-    }
-
-    if (hasNewNodes) {
-        // Phase 1: animate to intermediate state, then Phase 2 immediately after
-        drawTree(data, true);
-        highlightRedex(redexUids, argUids);
+        // Redraw: existing nodes snap to position, new nodes fade in
+        drawTree(data, hasNewNodes, 0);
         updateCurrentExpression();
-        const phase2Start = ANIM_MOVE_DURATION + ANIM_FADE_DURATION;
-        setTimeout(startPhase2, phase2Start);
-    } else {
-        // No new nodes — skip Phase 1, go straight to collapse
-        drawTree(data);
-        highlightRedex(redexUids, argUids);
-        updateCurrentExpression();
-        startPhase2();
-    }
+
+        // Re-enable buttons after fade-in completes
+        setTimeout(enableReduceButtons, hasNewNodes ? ANIM_FADE_DURATION : 0);
+    }, ANIM_MOVE_DURATION);
 }
 
 /**
@@ -527,7 +534,7 @@ function getChildren(node) {
  * @param {Object} treeData - The expression tree to render
  * @param {boolean} animate - If true, animate nodes from previous positions
  */
-function drawTree(treeData, animate = false) {
+function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
     if (!svgGroup) {
         createSvg();
     }
@@ -604,7 +611,7 @@ function drawTree(treeData, animate = false) {
             .attr('y2', d => d.target.y)
             .style('opacity', 0)
             .transition()
-            .delay(ANIM_MOVE_DURATION)
+            .delay(fadeDelay)
             .duration(ANIM_FADE_DURATION)
             .style('opacity', 1);
     }
@@ -640,7 +647,7 @@ function drawTree(treeData, animate = false) {
                 el.attr('d', computeBackEdgePath(d, bezierLine))
                   .style('opacity', 0)
                   .transition()
-                  .delay(ANIM_MOVE_DURATION)
+                  .delay(fadeDelay)
                   .duration(ANIM_FADE_DURATION)
                   .style('opacity', 0.6);
             }
@@ -672,7 +679,7 @@ function drawTree(treeData, animate = false) {
         nodeSelection.filter(d => isNewNode(d))
             .style('opacity', 0)
             .transition()
-            .delay(ANIM_MOVE_DURATION)
+            .delay(fadeDelay)
             .duration(ANIM_FADE_DURATION)
             .style('opacity', 1);
     }
