@@ -10,6 +10,7 @@ let nextUid = 1;
 let svg = null;
 let svgGroup = null;
 let previousPositions = new Map();  // uid → {x, y}
+let stepCount = 0;
 
 // Dimensions (updated on resize)
 let width = 800;
@@ -196,6 +197,17 @@ function updateCurrentExpression() {
         } catch (e) {
             exprElement.textContent = '(error)';
         }
+    }
+    updateStepCounter();
+}
+
+/**
+ * Update the step counter display
+ */
+function updateStepCounter() {
+    const counter = document.getElementById('step-counter');
+    if (counter) {
+        counter.textContent = stepCount > 0 ? `Step ${stepCount}` : '';
     }
 }
 
@@ -406,6 +418,8 @@ function update() {
         previousData.pop();
         return;
     }
+
+    stepCount++;
 
     // --- Save pre-reduction info ---
 
@@ -851,7 +865,8 @@ function applyNodeStyle(node, data) {
  */
 function goBack() {
     if (previousData.length === 0) return;
-    
+
+    stepCount = Math.max(0, stepCount - 1);
     data = previousData.pop();
     assignColors(data);
     drawTree(data);
@@ -867,6 +882,7 @@ function parseAndLoad() {
     globalColorIndex = 0; // Reset colors for new expression
     previousData = [];
     previousPositions = new Map();
+    stepCount = 0;
     
     const input = document.getElementById('lambdaString');
     const rawInput = input ? input.value.trim() : '';

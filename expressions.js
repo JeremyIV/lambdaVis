@@ -233,14 +233,7 @@ function populateExamples() {
         const item = document.createElement('div');
         item.className = 'example-item';
         item.title = example.description;
-        // For multi-line macro examples, show the main expression (last line)
-        const displayExpr = example.expression.includes('\n')
-            ? example.expression.split('\n').filter(l => l.trim()).pop()
-            : example.expression;
-        item.innerHTML = `
-            <span class="example-name">${example.name}</span>
-            <span class="example-code">${truncate(displayExpr, 20)}</span>
-        `;
+        item.textContent = example.name;
         item.addEventListener('click', () => loadExample(example.expression));
         container.appendChild(item);
     });
@@ -261,10 +254,3 @@ function loadExample(expression) {
     parseAndLoad();
 }
 
-/**
- * Truncates a string to a maximum length
- */
-function truncate(str, maxLength) {
-    if (str.length <= maxLength) return str;
-    return str.substring(0, maxLength - 1) + '...';
-}

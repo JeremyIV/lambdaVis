@@ -15,80 +15,82 @@
     <link rel="stylesheet" href="lambda.css">
 </head>
 <body>
-    <header>
-        <h1>Lambda Calculus Visualizer</h1>
-    </header>
-    
     <main>
         <div class="controls">
-            <div class="input-group">
-                <textarea id="lambdaString" rows="1" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false"></textarea>
-                <button type="button" id="expand-btn" class="expand-btn" title="Expand to multi-line editor">&#x25BC;</button>
+            <h1>Lambda Calculus Visualizer</h1>
+            <div class="controls-row">
+                <div class="input-group">
+                    <textarea id="lambdaString" rows="1" placeholder="Enter lambda expression, e.g. (:x y.x)(:x y.y)" spellcheck="false"></textarea>
+                    <button type="button" id="expand-btn" class="expand-btn" title="Expand to multi-line editor">&#x25BC;</button>
+                </div>
+                <div class="button-group">
+                    <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
+                    <button type="button" id="reduce-btn" onclick="update()">Reduce <kbd>Space</kbd></button>
+                    <button type="button" id="back-btn" onclick="goBack()">Back</button>
+                </div>
             </div>
-            <div class="button-group">
-                <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
-                <button type="button" id="reduce-btn" onclick="update()">Beta Reduce</button>
-                <button type="button" id="back-btn" onclick="goBack()">Go Back</button>
+            <div class="expression-bar">
+                <code id="current-expr">-</code>
+                <span id="step-counter" class="step-counter"></span>
             </div>
         </div>
-        
+
         <div class="content">
             <div id="tree-container">
                 <!-- SVG will be inserted here -->
             </div>
-            
-            <aside class="sidebar">
-                <section class="current-expression">
-                    <h3>Current Expression</h3>
-                    <code id="current-expr">-</code>
-                </section>
-                
-                <section class="examples">
-                    <h3>Examples</h3>
-                    <div class="example-list" id="example-list">
-                        <!-- Examples will be populated by JavaScript -->
-                    </div>
-                </section>
-                
-                <section class="syntax-help">
-                    <h3>Syntax</h3>
-                    <dl>
-                        <dt><code>:x.body</code></dt>
-                        <dd>Lambda (λx.body)</dd>
-                        <dt><code>:x y.body</code></dt>
-                        <dd>Multi-param lambda</dd>
-                        <dt><code>f x</code></dt>
-                        <dd>Application (f applied to x)</dd>
-                        <dt><code>(expr)</code></dt>
-                        <dd>Grouping</dd>
-                    </dl>
-                </section>
-                
-                <section class="legend">
-                    <h3>Legend</h3>
-                    <div class="legend-items">
-                        <div class="legend-item">
-                            <span class="legend-circle lambda"></span>
-                            <span>Lambda (λ)</span>
+
+            <aside class="sidebar" id="sidebar">
+                <button type="button" id="sidebar-toggle" class="sidebar-toggle" title="Toggle sidebar">&#x25B6;</button>
+
+                <div class="sidebar-content">
+                    <section class="examples">
+                        <h3>Examples</h3>
+                        <div class="example-list" id="example-list">
+                            <!-- Examples will be populated by JavaScript -->
                         </div>
-                        <div class="legend-item">
-                            <span class="legend-circle variable"></span>
-                            <span>Variable</span>
+                    </section>
+
+                    <section class="syntax-help">
+                        <h3>Syntax</h3>
+                        <dl>
+                            <dt><code>:x.body</code></dt>
+                            <dd>Lambda (λx.body)</dd>
+                            <dt><code>:x y.body</code></dt>
+                            <dd>Multi-param lambda</dd>
+                            <dt><code>f x</code></dt>
+                            <dd>Application (f applied to x)</dd>
+                            <dt><code>(expr)</code></dt>
+                            <dd>Grouping</dd>
+                        </dl>
+                    </section>
+
+                    <section class="legend">
+                        <h3>Legend</h3>
+                        <div class="legend-items">
+                            <div class="legend-item">
+                                <span class="legend-circle lambda"></span>
+                                <span>Lambda (λ)</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-circle variable"></span>
+                                <span>Variable</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-circle application"></span>
+                                <span>Application</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-line"></span>
+                                <span>Tree edge</span>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-curve"></span>
+                                <span>Variable binding</span>
+                            </div>
                         </div>
-                        <div class="legend-item">
-                            <span class="legend-circle application"></span>
-                            <span>Application</span>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-line"></span>
-                            <span>Tree edge</span>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-curve"></span>
-                            <span>Variable binding</span>
-                        </div>
-                    </div>
-                </section>
+                    </section>
+                </div>
             </aside>
         </div>
     </main>
@@ -116,6 +118,17 @@
             }
         });
 
+        // Space key triggers beta reduction (when not focused on input)
+        document.addEventListener('keydown', function(e) {
+            if (e.key === ' ' && e.target !== lambdaInput) {
+                e.preventDefault();
+                const reduceBtn = document.getElementById('reduce-btn');
+                if (reduceBtn && !reduceBtn.disabled) {
+                    update();
+                }
+            }
+        });
+
         // Toggle expand/collapse
         expandBtn.addEventListener('click', function() {
             expanded = !expanded;
@@ -131,6 +144,27 @@
                 lambdaInput.style.height = '';
             }
             lambdaInput.focus();
+        });
+
+        // Sidebar toggle
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebar = document.getElementById('sidebar');
+        sidebarToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('collapsed');
+            sidebarToggle.innerHTML = sidebar.classList.contains('collapsed') ? '&#x25C0;' : '&#x25B6;';
+            // Trigger resize so tree recalculates dimensions
+            setTimeout(() => handleResize(), 300);
+        });
+
+        // Mobile accordion toggles for sidebar sections
+        sidebar.addEventListener('click', function(e) {
+            if (window.innerWidth > 768) return;
+            const h3 = e.target.closest('h3');
+            if (!h3) return;
+            const section = h3.parentElement;
+            if (section && section.tagName === 'SECTION') {
+                section.classList.toggle('open');
+            }
         });
     </script>
 </body>
