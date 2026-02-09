@@ -127,6 +127,30 @@ const EXAMPLES = [
         expression: '(:x.x) (:x.x)'
     },
     {
+        name: 'Omega',
+        description: 'Self-application — each reduction reproduces the same expression (never terminates!)',
+        expression: '(:x.x x) (:x.x x)'
+    },
+    {
+        name: 'SKI Basis',
+        description: 'S K K is the identity combinator — S K K a reduces to a',
+        expression: [
+            'S = :x y z.x z (y z)',
+            'K = :x y.x',
+            'S K K a'
+        ].join('\n')
+    },
+    {
+        name: 'Pairs',
+        description: 'Church-encoded pairs — FST (PAIR a b) reduces to a',
+        expression: [
+            'PAIR = :a b f.f a b',
+            'FST = :p.p (:x y.x)',
+            'SND = :p.p (:x y.y)',
+            'FST (PAIR a b)'
+        ].join('\n')
+    },
+    {
         name: 'Boolean Logic',
         description: 'NOT (AND TRUE FALSE) using Church booleans — reduces to TRUE',
         expression: [
@@ -157,7 +181,41 @@ const EXAMPLES = [
             '+ = :m n f x.m f (n f x)',
             'PRED = :n f x.n (:g h.h (g f)) (:u.x) (:u.u)',
             '- = :m n.n PRED m',
+            'MULT = :m n f.m (n f)',
+            'EXP = :b e.e b',
             '+ 2 3'
+        ].join('\n')
+    },
+    {
+        name: 'Conditional',
+        description: 'IF (ISZERO 0) 1 2 — tests zero and branches, reduces to 1',
+        expression: [
+            'TRUE = :x y.x',
+            'FALSE = :x y.y',
+            '0 = :f x.x',
+            '1 = :f x.f x',
+            '2 = :f x.f (f x)',
+            'ISZERO = :n.n (:x.FALSE) TRUE',
+            'IF = :p a b.p a b',
+            'IF (ISZERO 0) 1 2'
+        ].join('\n')
+    },
+    {
+        name: 'Factorial',
+        description: 'Y combinator factorial — FACT 2 = 2 (many reduction steps!)',
+        expression: [
+            'TRUE = :x y.x',
+            'FALSE = :x y.y',
+            '0 = :f x.x',
+            '1 = :f x.f x',
+            '2 = :f x.f (f x)',
+            'IF = :p a b.p a b',
+            'ISZERO = :n.n (:x.FALSE) TRUE',
+            'MULT = :m n f.m (n f)',
+            'PRED = :n f x.n (:g h.h (g f)) (:u.x) (:u.u)',
+            'Y = :f.(:x.f (x x)) (:x.f (x x))',
+            'FACT = Y (:f n.IF (ISZERO n) 1 (MULT n (f (PRED n))))',
+            'FACT 2'
         ].join('\n')
     }
 ];

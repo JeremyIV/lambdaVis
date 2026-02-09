@@ -459,7 +459,7 @@ svg circle.application {
 /* Macro labels on nodes */
 svg text.macro-label {
     font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-    font-size: 0.6875rem;
+    font-size: 0.9375rem;
     fill: var(--text-muted);
     text-anchor: middle;
     pointer-events: none;
