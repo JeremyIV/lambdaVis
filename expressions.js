@@ -202,20 +202,24 @@ const EXAMPLES = [
     },
     {
         name: 'Factorial',
-        description: 'Y combinator factorial — FACT 2 = 2 (many reduction steps!)',
+        description: 'Y combinator factorial — FACT 3 = 6 (many reduction steps!)',
         expression: [
             'TRUE = :x y.x',
             'FALSE = :x y.y',
             '0 = :f x.x',
             '1 = :f x.f x',
             '2 = :f x.f (f x)',
+            '3 = :f x.f (f (f x))',
+            '4 = :f x.f (f (f (f x)))',
+            '5 = :f x.f (f (f (f (f x))))',
+            '6 = :f x.f (f (f (f (f (f x)))))',
             'IF = :p a b.p a b',
             'ISZERO = :n.n (:x.FALSE) TRUE',
             'MULT = :m n f.m (n f)',
             'PRED = :n f x.n (:g h.h (g f)) (:u.x) (:u.u)',
             'Y = :f.(:x.f (x x)) (:x.f (x x))',
             'FACT = Y (:f n.IF (ISZERO n) 1 (MULT n (f (PRED n))))',
-            'FACT 2'
+            'FACT 3'
         ].join('\n')
     }
 ];

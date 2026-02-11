@@ -149,11 +149,13 @@
         // Sidebar toggle
         const sidebarToggle = document.getElementById('sidebar-toggle');
         const sidebar = document.getElementById('sidebar');
-        const isMobile = () => window.innerWidth <= 768;
+        const isMobile = () => window.innerWidth <= 768 || (matchMedia('(pointer: coarse) and (hover: none)').matches);
 
         function sidebarArrow(collapsed) {
             if (isMobile()) {
-                return collapsed ? '&#x25B2;' : '&#x25BC;'; // ▲ / ▼
+                return collapsed
+                    ? 'Examples &amp; Reference &#x25B2;'
+                    : '&#x25BC;'; // ▼
             }
             return collapsed ? '&#x25C0;' : '&#x25B6;'; // ◀ / ▶
         }
@@ -162,6 +164,9 @@
         if (isMobile()) {
             sidebar.classList.add('collapsed');
             sidebarToggle.innerHTML = sidebarArrow(true);
+            // Open the first section (Examples) by default
+            const firstSection = sidebar.querySelector('section');
+            if (firstSection) firstSection.classList.add('open');
         }
 
         sidebarToggle.addEventListener('click', function() {
@@ -173,7 +178,7 @@
 
         // Mobile accordion toggles for sidebar sections
         sidebar.addEventListener('click', function(e) {
-            if (window.innerWidth > 768) return;
+            if (!isMobile()) return;
             const h3 = e.target.closest('h3');
             if (!h3) return;
             const section = h3.parentElement;

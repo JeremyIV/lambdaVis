@@ -91,23 +91,10 @@ function initialize() {
     populateExamples();
     updateBackButton();
     
-    // Load default expression
-    nextUid = 1;
-    globalColorIndex = 0;
-    activeMacros = [];
-    previousPositions = new Map();
-    const defaultExpr = '(:x y.x)(:x y.y)';
-    document.getElementById('lambdaString').value = defaultExpr;
-    
-    const consumableString = [defaultExpr];
-    try {
-        data = parseExpression(consumableString);
-        assignUids(data);
-        assignColors(data);
-        drawTree(data);
-        updateCurrentExpression();
-    } catch (e) {
-        console.error('Failed to parse default expression:', e);
+    // Load Arithmetic example as default
+    const arithmeticExample = EXAMPLES.find(e => e.name === 'Arithmetic');
+    if (arithmeticExample) {
+        loadExample(arithmeticExample.expression);
     }
 }
 
@@ -828,7 +815,7 @@ function updateTooltips() {
     nodeLayer.selectAll('circle').select('title').remove();
 
     // Add invisible larger hit areas on mobile for easier touch targeting
-    const touchTarget = window.innerWidth <= 768;
+    const touchTarget = window.innerWidth <= 768 || matchMedia('(pointer: coarse) and (hover: none)').matches;
     if (touchTarget) {
         nodeLayer.selectAll('circle.touch-target').remove();
         nodeLayer.selectAll('circle:not(.touch-target)').each(function(d) {
