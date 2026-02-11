@@ -26,6 +26,12 @@
                 <div class="button-group">
                     <button type="button" id="load-btn" onclick="parseAndLoad()">Load</button>
                     <button type="button" id="reduce-btn" onclick="update()">Reduce <kbd>Space</kbd></button>
+                    <button type="button" id="play-btn" onclick="togglePlay()">Play</button>
+                    <div class="speed-controls">
+                        <button type="button" id="speed-down-btn" onclick="speedDown()" title="Slow down" disabled>&minus;</button>
+                        <span id="speed-display">1x</span>
+                        <button type="button" id="speed-up-btn" onclick="speedUp()" title="Speed up">+</button>
+                    </div>
                     <button type="button" id="back-btn" onclick="goBack()">Back</button>
                 </div>
             </div>

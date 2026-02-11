@@ -9,7 +9,13 @@ const APPLICATION = "application";
  * @returns {Object} A deep copy of the object
  */
 function deepCopy(obj) {
-	return JSON.parse(JSON.stringify(obj));
+	if (obj === null || typeof obj !== 'object') return obj;
+	const copy = {};
+	for (const key in obj) {
+		const val = obj[key];
+		copy[key] = (val !== null && typeof val === 'object') ? deepCopy(val) : val;
+	}
+	return copy;
 }
 
 /**
@@ -24,6 +30,17 @@ function copyInto(target, source) {
 	for (const key in source) {
 		target[key] = source[key];
 	}
+}
+
+/**
+ * Count the number of nodes in an expression tree.
+ */
+function treeSize(node) {
+	if (!node) return 0;
+	if (node.type === VARIABLE) return 1;
+	if (node.type === LAMBDA) return 1 + treeSize(node.expression);
+	if (node.type === APPLICATION) return 1 + treeSize(node.left) + treeSize(node.right);
+	return 1;
 }
 
 /**

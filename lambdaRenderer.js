@@ -11,16 +11,28 @@ let svg = null;
 let svgGroup = null;
 let previousPositions = new Map();  // uid → {x, y}
 let stepCount = 0;
+let playing = false;
+let playTimer = null;
 
 // Dimensions (updated on resize)
 let width = 800;
 let height = 600;
 const padding = 40;
-const ANIM_MOVE_DURATION = 800;   // ms for nodes/edges to move
-const ANIM_FADE_DURATION = 600;   // ms for removed nodes to fade out
+// Base animation timings (scaled by playSpeed)
+const BASE_MOVE_DURATION = 800;
+const BASE_FADE_DURATION = 600;
+const BASE_COPY_DURATION = 800;
+const BASE_PLAY_DELAY = 300;
+let ANIM_MOVE_DURATION = 800;   // ms for nodes/edges to move
+let ANIM_FADE_DURATION = 600;   // ms for removed nodes to fade out
 const ANIM_SHRINK_SCALE = 0.15;   // scale factor for argument mini-tree
-const ANIM_COPY_DURATION = 800;   // ms for copies to travel along ropes
+let ANIM_COPY_DURATION = 800;   // ms for copies to travel along ropes
+
+// Speed control
+const SPEED_LEVELS = [1, 2, 4, 8];
+let playSpeed = 1;
 const NODE_RADII = { [VARIABLE]: 6, [LAMBDA]: 8, [APPLICATION]: 4 };
+let nodeScale = 1;
 
 // Active macro definitions for labeling nodes { name, ast }
 let activeMacros = [];
@@ -50,15 +62,16 @@ function lerp(a, b, t) {
  * Flatten a tree into an array via pre-order traversal.
  * Used to match argument nodes to copy nodes by structural position.
  */
-function flattenTree(node) {
-    const result = [node];
+function flattenTree(node, acc) {
+    if (!acc) acc = [];
+    acc.push(node);
     if (node.type === LAMBDA && node.expression) {
-        result.push(...flattenTree(node.expression));
+        flattenTree(node.expression, acc);
     } else if (node.type === APPLICATION) {
-        if (node.left) result.push(...flattenTree(node.left));
-        if (node.right) result.push(...flattenTree(node.right));
+        if (node.left) flattenTree(node.left, acc);
+        if (node.right) flattenTree(node.right, acc);
     }
-    return result;
+    return acc;
 }
 
 /**
@@ -118,6 +131,62 @@ function createSvg() {
     svgGroup.append('g').attr('class', 'tree-edges-layer');
     svgGroup.append('g').attr('class', 'nodes-layer');
     svgGroup.append('g').attr('class', 'labels-layer');
+
+    // Set up tooltip and delegated event handlers (once)
+    let tooltip = document.getElementById('node-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'node-tooltip';
+        document.getElementById('tree-container').appendChild(tooltip);
+    }
+
+    const nodeLayerEl = svgGroup.select('.nodes-layer').node();
+
+    nodeLayerEl.addEventListener('mouseover', function(event) {
+        const target = event.target;
+        if (target.tagName !== 'circle') return;
+        const d = d3.select(target).datum();
+        if (!d || !d.data) return;
+        tooltip.textContent = expressionToString(d.data);
+        tooltip.style.display = 'block';
+        const rect = document.getElementById('tree-container').getBoundingClientRect();
+        tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
+        tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
+    });
+
+    nodeLayerEl.addEventListener('mousemove', function(event) {
+        if (tooltip.style.display !== 'block') return;
+        const rect = document.getElementById('tree-container').getBoundingClientRect();
+        tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
+        tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
+    });
+
+    nodeLayerEl.addEventListener('mouseout', function(event) {
+        if (event.target.tagName === 'circle') {
+            tooltip.style.display = 'none';
+        }
+    });
+
+    // Touch support
+    nodeLayerEl.addEventListener('touchstart', function(event) {
+        const target = event.target;
+        if (target.tagName !== 'circle') return;
+        const d = d3.select(target).datum();
+        if (!d || !d.data) return;
+        event.preventDefault();
+        const touch = event.touches[0];
+        tooltip.textContent = expressionToString(d.data);
+        tooltip.style.display = 'block';
+        const rect = document.getElementById('tree-container').getBoundingClientRect();
+        tooltip.style.left = (touch.clientX - rect.left + 12) + 'px';
+        tooltip.style.top = (touch.clientY - rect.top - 40) + 'px';
+    });
+
+    nodeLayerEl.addEventListener('touchend', function(event) {
+        if (event.target.tagName === 'circle') {
+            setTimeout(() => { tooltip.style.display = 'none'; }, 1500);
+        }
+    });
 }
 
 /**
@@ -231,37 +300,38 @@ function collectUids(node, uidSet) {
  * Apply glow highlights to the redex (blue) and argument (green) nodes and edges
  */
 function highlightRedex(redexUids, argUids) {
-    const blueGlow = 'drop-shadow(0 0 6px #3b82f6) drop-shadow(0 0 10px #3b82f6)';
-    const greenGlow = 'drop-shadow(0 0 6px #22c55e) drop-shadow(0 0 10px #22c55e)';
+    const blueHighlight = '#3b82f6';
+    const greenHighlight = '#22c55e';
 
-    // Helper: pick glow for an element based on its UIDs
-    function glowFor(uids) {
+    // Helper: pick highlight color for an element based on its UIDs
+    function colorFor(uids) {
         const hasRedex = uids.some(u => redexUids.has(u));
         const hasArg = uids.some(u => argUids.has(u));
-        if (hasRedex) return blueGlow;
-        if (hasArg) return greenGlow;
+        if (hasRedex) return blueHighlight;
+        if (hasArg) return greenHighlight;
         return null;
     }
-
-    // Nodes
-    svgGroup.select('.nodes-layer').selectAll('circle')
-        .each(function(d) {
-            const glow = glowFor([d.data.uid]);
-            if (glow) d3.select(this).style('filter', glow);
-        });
 
     // Tree edges
     svgGroup.select('.tree-edges-layer').selectAll('line')
         .each(function(d) {
-            const glow = glowFor([d.source.data.uid, d.target.data.uid]);
-            if (glow) d3.select(this).style('filter', glow);
+            const color = colorFor([d.source.data.uid, d.target.data.uid]);
+            if (color) {
+                d3.select(this)
+                    .style('stroke', color)
+                    .style('stroke-width', (3 * nodeScale) + 'px');
+            }
         });
 
     // Back edges
     svgGroup.select('.back-edges-layer').selectAll('path')
         .each(function(d) {
-            const glow = glowFor([d.source.data.uid, d.target.data.uid]);
-            if (glow) d3.select(this).style('filter', glow);
+            const color = colorFor([d.source.data.uid, d.target.data.uid]);
+            if (color) {
+                d3.select(this)
+                    .style('stroke', color)
+                    .style('stroke-width', (3 * nodeScale) + 'px');
+            }
         });
 }
 
@@ -379,6 +449,95 @@ function enableReduceButtons() {
     const reduceBtn = document.getElementById('reduce-btn');
     if (reduceBtn) reduceBtn.disabled = false;
     updateBackButton();
+
+    // Auto-advance when playing
+    if (playing) {
+        playTimer = setTimeout(() => {
+            playTimer = null;
+            update();
+        }, BASE_PLAY_DELAY / playSpeed);
+    }
+}
+
+/**
+ * Toggle play/pause auto-reduction
+ */
+function togglePlay() {
+    playing = !playing;
+    const btn = document.getElementById('play-btn');
+    if (btn) {
+        btn.textContent = playing ? 'Pause' : 'Play';
+        btn.classList.toggle('playing', playing);
+    }
+    if (playing) {
+        update();
+    } else {
+        if (playTimer) {
+            clearTimeout(playTimer);
+            playTimer = null;
+        }
+    }
+}
+
+/**
+ * Stop auto-play and reset button state
+ */
+function stopPlaying() {
+    playing = false;
+    if (playTimer) {
+        clearTimeout(playTimer);
+        playTimer = null;
+    }
+    const btn = document.getElementById('play-btn');
+    if (btn) {
+        btn.textContent = 'Play';
+        btn.classList.remove('playing');
+    }
+}
+
+/**
+ * Update animation durations based on current playSpeed
+ */
+function applySpeed() {
+    ANIM_MOVE_DURATION = BASE_MOVE_DURATION / playSpeed;
+    ANIM_FADE_DURATION = BASE_FADE_DURATION / playSpeed;
+    ANIM_COPY_DURATION = BASE_COPY_DURATION / playSpeed;
+}
+
+/**
+ * Update the speed control UI (display + button disabled states)
+ */
+function updateSpeedUI() {
+    const display = document.getElementById('speed-display');
+    if (display) display.textContent = playSpeed + 'x';
+    const downBtn = document.getElementById('speed-down-btn');
+    const upBtn = document.getElementById('speed-up-btn');
+    if (downBtn) downBtn.disabled = playSpeed === SPEED_LEVELS[0];
+    if (upBtn) upBtn.disabled = playSpeed === SPEED_LEVELS[SPEED_LEVELS.length - 1];
+}
+
+/**
+ * Increase playback speed
+ */
+function speedUp() {
+    const idx = SPEED_LEVELS.indexOf(playSpeed);
+    if (idx < SPEED_LEVELS.length - 1) {
+        playSpeed = SPEED_LEVELS[idx + 1];
+        applySpeed();
+        updateSpeedUI();
+    }
+}
+
+/**
+ * Decrease playback speed
+ */
+function speedDown() {
+    const idx = SPEED_LEVELS.indexOf(playSpeed);
+    if (idx > 0) {
+        playSpeed = SPEED_LEVELS[idx - 1];
+        applySpeed();
+        updateSpeedUI();
+    }
 }
 
 /**
@@ -403,6 +562,7 @@ function update() {
 
     if (!reduction) {
         previousData.pop();
+        stopPlaying();
         return;
     }
 
@@ -517,7 +677,7 @@ function update() {
     // --- Phase 1: Animated collapse with argument mini-tree ---
 
     const bezierLine = d3.line().curve(d3.curveCatmullRom.alpha(0.5));
-    const greenGlow = 'drop-shadow(0 0 6px #22c55e) drop-shadow(0 0 10px #22c55e)';
+    const greenHighlight = '#22c55e';
 
     // 1. Extract argument elements from SVG → build overlay group
     svgGroup.select('.nodes-layer').selectAll('circle')
@@ -595,7 +755,8 @@ function update() {
             .attr('d', backEdgePathFromCoords(
                 be.srcRelX, be.srcRelY,
                 be.tgtRelX, be.tgtRelY, bezierLine))
-            .style('filter', greenGlow);
+            .style('stroke', greenHighlight)
+            .style('stroke-width', (3 * nodeScale) + 'px');
     });
 
     argEdgeIndices.forEach(e => {
@@ -604,16 +765,17 @@ function update() {
             .attr('y1', argRelPositions[e.srcIdx].relY)
             .attr('x2', argRelPositions[e.tgtIdx].relX)
             .attr('y2', argRelPositions[e.tgtIdx].relY)
-            .style('filter', greenGlow);
+            .style('stroke', greenHighlight)
+            .style('stroke-width', (3 * nodeScale) + 'px');
     });
 
     argFlatNodes.forEach((n, i) => {
         const circle = argOverlay.append('circle')
             .attr('cx', argRelPositions[i].relX)
             .attr('cy', argRelPositions[i].relY)
-            .attr('r', NODE_RADII[n.type] || 6);
+            .attr('r', (NODE_RADII[n.type] || 6) * nodeScale);
         applyNodeStyle(circle, { type: n.type, color: n.color });
-        circle.style('filter', greenGlow);
+        circle.style('stroke', greenHighlight).style('stroke-width', (4 * nodeScale) + 'px');
     });
 
     argOverlay.transition().duration(ANIM_MOVE_DURATION)
@@ -657,7 +819,7 @@ function update() {
                 const endOffsetX = fp ? fp.x - targetPos.x : 0;
                 const endOffsetY = fp ? fp.y - targetPos.y : 0;
 
-                const endR = NODE_RADII[cn.type] || 6;
+                const endR = (NODE_RADII[cn.type] || 6) * nodeScale;
                 const startR = endR * ANIM_SHRINK_SCALE;
 
                 return {
@@ -718,9 +880,10 @@ function update() {
             samplePath.style.visibility = 'hidden';
             svgGroup.node().appendChild(samplePath);
 
+            const pathLen = samplePath.getTotalLength();
             copyTravelData.push({
                 copyGroup, rope: rope.rope, targetPos,
-                nodeData, edgeData, connEdges, samplePath
+                nodeData, edgeData, connEdges, samplePath, pathLen
             });
         }
 
@@ -740,8 +903,7 @@ function update() {
 
             for (const copy of copyTravelData) {
                 // Root follows the rope curve
-                const pathLen = copy.samplePath.getTotalLength();
-                const pt = copy.samplePath.getPointAtLength(ease * pathLen);
+                const pt = copy.samplePath.getPointAtLength(ease * copy.pathLen);
                 const rootX = pt.x;
                 const rootY = pt.y;
 
@@ -801,76 +963,26 @@ function update() {
 }
 
 /**
- * Update tooltips on all nodes to show the sub-expression string on hover/touch
+ * Add invisible larger hit areas on mobile for easier touch targeting.
+ * Tooltip event handling is done via delegation in createSvg().
  */
 function updateTooltips() {
-    let tooltip = document.getElementById('node-tooltip');
-    if (!tooltip) {
-        tooltip = document.createElement('div');
-        tooltip.id = 'node-tooltip';
-        document.getElementById('tree-container').appendChild(tooltip);
-    }
+    const isMobile = window.innerWidth <= 768 || matchMedia('(pointer: coarse) and (hover: none)').matches;
+    if (!isMobile) return;
 
     const nodeLayer = svgGroup.select('.nodes-layer');
-    nodeLayer.selectAll('circle').select('title').remove();
-
-    // Add invisible larger hit areas on mobile for easier touch targeting
-    const touchTarget = window.innerWidth <= 768 || matchMedia('(pointer: coarse) and (hover: none)').matches;
-    if (touchTarget) {
-        nodeLayer.selectAll('circle.touch-target').remove();
-        nodeLayer.selectAll('circle:not(.touch-target)').each(function(d) {
-            const cx = d3.select(this).attr('cx');
-            const cy = d3.select(this).attr('cy');
-            nodeLayer.append('circle')
-                .attr('class', 'touch-target')
-                .attr('cx', cx)
-                .attr('cy', cy)
-                .attr('r', 20)
-                .style('fill', 'transparent')
-                .style('stroke', 'none')
-                .datum(d);
-        });
-    }
-
-    // Select both real nodes and touch targets for event binding
-    const allTargets = touchTarget
-        ? nodeLayer.selectAll('circle')
-        : nodeLayer.selectAll('circle:not(.touch-target)');
-
-    allTargets
-        .on('mouseenter', function(event, d) {
-            if (!d || !d.data) return;
-            tooltip.textContent = expressionToString(d.data);
-            tooltip.style.display = 'block';
-            const rect = document.getElementById('tree-container').getBoundingClientRect();
-            tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
-            tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
-        })
-        .on('mousemove', function(event) {
-            const rect = document.getElementById('tree-container').getBoundingClientRect();
-            tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
-            tooltip.style.top = (event.clientY - rect.top - 28) + 'px';
-        })
-        .on('mouseleave', function() {
-            tooltip.style.display = 'none';
-        });
-
-    // Touch support for tooltips
-    allTargets
-        .on('touchstart', function(event, d) {
-            if (!d || !d.data) return;
-            event.preventDefault();
-            const touch = event.touches[0];
-            tooltip.textContent = expressionToString(d.data);
-            tooltip.style.display = 'block';
-            const rect = document.getElementById('tree-container').getBoundingClientRect();
-            tooltip.style.left = (touch.clientX - rect.left + 12) + 'px';
-            tooltip.style.top = (touch.clientY - rect.top - 40) + 'px';
-        })
-        .on('touchend', function() {
-            // Hide tooltip after a short delay so the user can read it
-            setTimeout(() => { tooltip.style.display = 'none'; }, 1500);
-        });
+    nodeLayer.selectAll('circle:not(.touch-target)').each(function(d) {
+        const cx = d3.select(this).attr('cx');
+        const cy = d3.select(this).attr('cy');
+        nodeLayer.append('circle')
+            .attr('class', 'touch-target')
+            .attr('cx', cx)
+            .attr('cy', cy)
+            .attr('r', 20)
+            .style('fill', 'transparent')
+            .style('stroke', 'none')
+            .datum(d);
+    });
 }
 
 /**
@@ -894,6 +1006,7 @@ function applyNodeStyle(node, data) {
  */
 function goBack() {
     if (previousData.length === 0) return;
+    stopPlaying();
 
     stepCount = Math.max(0, stepCount - 1);
     data = previousData.pop();
@@ -907,6 +1020,7 @@ function goBack() {
  * Parse input and load new expression
  */
 function parseAndLoad() {
+    stopPlaying();
     nextUid = 1;
     globalColorIndex = 0; // Reset colors for new expression
     previousData = [];
@@ -928,7 +1042,7 @@ function parseAndLoad() {
     for (const m of lastExpandedMacros) {
         try {
             const ast = parseExpression([m.body]);
-            activeMacros.push({ name: m.name, ast });
+            activeMacros.push({ name: m.name, ast, size: treeSize(ast), rootType: ast.type });
         } catch (e) {
             // skip unparseable macros
         }
@@ -974,8 +1088,9 @@ function getChildren(node) {
 /**
  * Find the first macro whose AST is alpha-equivalent to this node.
  */
-function findMacroLabel(node) {
+function findMacroLabel(node, nodeSize) {
     for (const macro of activeMacros) {
+        if (macro.rootType !== node.type || macro.size !== nodeSize) continue;
         if (alphaEquivalent(node, macro.ast)) {
             return macro.name;
         }
@@ -985,15 +1100,23 @@ function findMacroLabel(node) {
 
 /**
  * Annotate every node in the tree with a macroLabel property.
+ * Returns the size of the subtree (used for early bailout in macro matching).
  */
 function annotateMacroLabels(node) {
-    node.macroLabel = findMacroLabel(node);
-    if (node.type === LAMBDA && node.expression) {
-        annotateMacroLabels(node.expression);
+    let size;
+    if (node.type === VARIABLE) {
+        size = 1;
+    } else if (node.type === LAMBDA && node.expression) {
+        size = 1 + annotateMacroLabels(node.expression);
     } else if (node.type === APPLICATION) {
-        if (node.left) annotateMacroLabels(node.left);
-        if (node.right) annotateMacroLabels(node.right);
+        const leftSize = node.left ? annotateMacroLabels(node.left) : 0;
+        const rightSize = node.right ? annotateMacroLabels(node.right) : 0;
+        size = 1 + leftSize + rightSize;
+    } else {
+        size = 1;
     }
+    node.macroLabel = findMacroLabel(node, size);
+    return size;
 }
 
 /**
@@ -1028,6 +1151,9 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
     const links = root.links();
     const backEdges = computeBackEdges(root, {});
 
+    // Scale down nodes/edges for large trees
+    nodeScale = Math.min(1, Math.sqrt(40 / nodes.length));
+
     // Helper: determine starting position for a node
     function startPos(d) {
         if (!animate) {
@@ -1061,6 +1187,7 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
         .data(links)
         .enter()
         .append('line')
+        .style('stroke-width', (2 * nodeScale) + 'px')
         .attr('x1', d => startPos(d.source).x)
         .attr('y1', d => startPos(d.source).y)
         .attr('x2', d => startPos(d.target).x)
@@ -1098,7 +1225,8 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
         .enter()
         .append('path')
         .attr('class', 'back-edge')
-        .style('stroke', d => d.source.data.color || '#a5b4fc');
+        .style('stroke', d => d.source.data.color || '#a5b4fc')
+        .style('stroke-width', (2 * nodeScale) + 'px');
 
     if (animate) {
         backEdgeSelection.each(function(d) {
@@ -1158,7 +1286,11 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
     }
 
     nodeSelection.each(function(d) {
-        applyNodeStyle(d3.select(this), d.data);
+        const el = d3.select(this);
+        applyNodeStyle(el, d.data);
+        const baseR = NODE_RADII[d.data.type] || 6;
+        el.attr('r', baseR * nodeScale)
+          .style('stroke-width', (2 * nodeScale) + 'px');
     });
 
     // Update tooltips
@@ -1174,7 +1306,8 @@ function drawTree(treeData, animate = false, fadeDelay = ANIM_MOVE_DURATION) {
             .append('text')
             .attr('class', 'macro-label')
             .attr('x', d => d.x)
-            .attr('y', d => d.y - (NODE_RADII[d.data.type] || 6) - 6)
+            .attr('y', d => d.y - (NODE_RADII[d.data.type] || 6) * nodeScale - 6 * nodeScale)
+            .style('font-size', (0.9375 * nodeScale) + 'rem')
             .text(d => d.data.macroLabel);
     }
 
@@ -1212,40 +1345,37 @@ function computeBackEdgePath(edge, bezierLine) {
 /**
  * Compute back edges from variables to their binding lambdas
  */
-function computeBackEdges(root, scope) {
+function computeBackEdges(root, scope, acc) {
+    if (!acc) acc = [];
     const data = root.data;
     const type = data.type;
-    
+
     if (type === VARIABLE) {
-        const id = data.id;
-        const bindingLambda = scope[id];
-        if (bindingLambda === undefined) {
-            return [];
+        const bindingLambda = scope[data.id];
+        if (bindingLambda !== undefined) {
+            acc.push({ source: root, target: bindingLambda });
         }
-        return [{
-            source: root,
-            target: bindingLambda
-        }];
+        return acc;
     }
-    
+
     if (type === LAMBDA) {
         const id = data.id;
         const prevBinding = scope[id];
         scope[id] = root;
-        const edges = root.children ? computeBackEdges(root.children[0], scope) : [];
+        if (root.children) computeBackEdges(root.children[0], scope, acc);
         if (prevBinding !== undefined) {
             scope[id] = prevBinding;
         } else {
             delete scope[id];
         }
-        return edges;
+        return acc;
     }
-    
+
     if (type === APPLICATION) {
-        const leftEdges = root.children ? computeBackEdges(root.children[0], scope) : [];
-        const rightEdges = root.children && root.children[1] ? computeBackEdges(root.children[1], scope) : [];
-        return [...leftEdges, ...rightEdges];
+        if (root.children) computeBackEdges(root.children[0], scope, acc);
+        if (root.children && root.children[1]) computeBackEdges(root.children[1], scope, acc);
+        return acc;
     }
-    
-    return [];
+
+    return acc;
 }

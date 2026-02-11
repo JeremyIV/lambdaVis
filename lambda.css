@@ -281,6 +281,65 @@ button:active {
     background: var(--accent);
 }
 
+#play-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+#play-btn:hover {
+    background: var(--border);
+}
+
+#play-btn.playing {
+    background: var(--accent);
+    color: white;
+}
+
+#play-btn.playing:hover {
+    background: var(--accent-hover);
+}
+
+.speed-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+}
+
+#speed-display {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 1.75rem;
+    text-align: center;
+    user-select: none;
+}
+
+#speed-down-btn,
+#speed-up-btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    line-height: 1;
+}
+
+#speed-down-btn:hover,
+#speed-up-btn:hover {
+    background: var(--border);
+}
+
+#speed-down-btn:disabled,
+#speed-up-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+#speed-down-btn:disabled:hover,
+#speed-up-btn:disabled:hover {
+    background: var(--bg-tertiary);
+}
+
 #back-btn {
     background: var(--bg-tertiary);
     color: var(--text-primary);
@@ -493,21 +552,15 @@ svg circle {
 svg circle.lambda {
     fill: var(--node-lambda);
     stroke: var(--node-lambda);
-    stroke-width: 2px;
-    r: 8px;
 }
 
 svg circle.variable {
     fill: var(--node-variable);
-    stroke-width: 2px;
-    r: 6px;
 }
 
 svg circle.application {
     fill: var(--node-application);
     stroke: var(--node-application);
-    stroke-width: 2px;
-    r: 4px;
 }
 
 /* Macro labels on nodes */
