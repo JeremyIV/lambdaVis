@@ -814,7 +814,7 @@ function update() {
 }
 
 /**
- * Update tooltips on all nodes to show the sub-expression string on hover
+ * Update tooltips on all nodes to show the sub-expression string on hover/touch
  */
 function updateTooltips() {
     let tooltip = document.getElementById('node-tooltip');
@@ -826,8 +826,33 @@ function updateTooltips() {
 
     const nodeLayer = svgGroup.select('.nodes-layer');
     nodeLayer.selectAll('circle').select('title').remove();
-    nodeLayer.selectAll('circle')
+
+    // Add invisible larger hit areas on mobile for easier touch targeting
+    const touchTarget = window.innerWidth <= 768;
+    if (touchTarget) {
+        nodeLayer.selectAll('circle.touch-target').remove();
+        nodeLayer.selectAll('circle:not(.touch-target)').each(function(d) {
+            const cx = d3.select(this).attr('cx');
+            const cy = d3.select(this).attr('cy');
+            nodeLayer.append('circle')
+                .attr('class', 'touch-target')
+                .attr('cx', cx)
+                .attr('cy', cy)
+                .attr('r', 20)
+                .style('fill', 'transparent')
+                .style('stroke', 'none')
+                .datum(d);
+        });
+    }
+
+    // Select both real nodes and touch targets for event binding
+    const allTargets = touchTarget
+        ? nodeLayer.selectAll('circle')
+        : nodeLayer.selectAll('circle:not(.touch-target)');
+
+    allTargets
         .on('mouseenter', function(event, d) {
+            if (!d || !d.data) return;
             tooltip.textContent = expressionToString(d.data);
             tooltip.style.display = 'block';
             const rect = document.getElementById('tree-container').getBoundingClientRect();
@@ -841,6 +866,23 @@ function updateTooltips() {
         })
         .on('mouseleave', function() {
             tooltip.style.display = 'none';
+        });
+
+    // Touch support for tooltips
+    allTargets
+        .on('touchstart', function(event, d) {
+            if (!d || !d.data) return;
+            event.preventDefault();
+            const touch = event.touches[0];
+            tooltip.textContent = expressionToString(d.data);
+            tooltip.style.display = 'block';
+            const rect = document.getElementById('tree-container').getBoundingClientRect();
+            tooltip.style.left = (touch.clientX - rect.left + 12) + 'px';
+            tooltip.style.top = (touch.clientY - rect.top - 40) + 'px';
+        })
+        .on('touchend', function() {
+            // Hide tooltip after a short delay so the user can read it
+            setTimeout(() => { tooltip.style.display = 'none'; }, 1500);
         });
 }
 

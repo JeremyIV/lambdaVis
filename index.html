@@ -149,9 +149,24 @@
         // Sidebar toggle
         const sidebarToggle = document.getElementById('sidebar-toggle');
         const sidebar = document.getElementById('sidebar');
+        const isMobile = () => window.innerWidth <= 768;
+
+        function sidebarArrow(collapsed) {
+            if (isMobile()) {
+                return collapsed ? '&#x25B2;' : '&#x25BC;'; // ▲ / ▼
+            }
+            return collapsed ? '&#x25C0;' : '&#x25B6;'; // ◀ / ▶
+        }
+
+        // Auto-collapse sidebar on mobile at page load
+        if (isMobile()) {
+            sidebar.classList.add('collapsed');
+            sidebarToggle.innerHTML = sidebarArrow(true);
+        }
+
         sidebarToggle.addEventListener('click', function() {
             sidebar.classList.toggle('collapsed');
-            sidebarToggle.innerHTML = sidebar.classList.contains('collapsed') ? '&#x25C0;' : '&#x25B6;';
+            sidebarToggle.innerHTML = sidebarArrow(sidebar.classList.contains('collapsed'));
             // Trigger resize so tree recalculates dimensions
             setTimeout(() => handleResize(), 300);
         });

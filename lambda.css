@@ -537,19 +537,49 @@ svg text.macro-label {
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
+    .controls {
+        padding: 0.5rem 0.75rem;
+    }
+
     .controls h1 {
-        font-size: 1rem;
+        font-size: 0.875rem;
+    }
+
+    .controls-row {
+        gap: 0.5rem;
+    }
+
+    .input-group {
+        min-width: 0;
+    }
+
+    button {
+        min-height: 44px;
+        font-size: 0.875rem;
+    }
+
+    /* Hide keyboard hint on mobile */
+    #reduce-btn kbd {
+        display: none;
+    }
+
+    /* Expression bar: allow horizontal scroll */
+    .expression-bar code {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .content {
         flex-direction: column;
     }
 
+    /* Sidebar: starts collapsed on mobile via JS adding .collapsed */
     .sidebar {
         width: 100%;
         border-left: none;
         border-top: 1px solid var(--border);
-        max-height: 40vh;
+        max-height: 35vh;
+        transition: max-height 0.25s ease, padding 0.25s ease;
     }
 
     .sidebar.collapsed {
@@ -561,6 +591,7 @@ svg text.macro-label {
     .sidebar-toggle {
         position: static;
         margin-bottom: 0.5rem;
+        min-height: 2rem;
     }
 
     .sidebar h3 {
@@ -597,7 +628,26 @@ svg text.macro-label {
         transform: rotate(90deg);
     }
 
-    .input-group {
-        min-width: 100%;
+    /* Larger touch targets for example items */
+    .example-item {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}
+
+/* Extra-small screens */
+@media (max-width: 400px) {
+    .controls h1 {
+        font-size: 0.75rem;
+    }
+
+    .button-group {
+        gap: 0.25rem;
+    }
+
+    button {
+        padding: 0.5rem 0.625rem;
+        font-size: 0.8125rem;
     }
 }
