@@ -312,10 +312,16 @@ function highlightRedex(redexUids, argUids) {
         return null;
     }
 
-    // Tree edges
+    // Tree edges — only blue if both endpoints are in the redex
     svgGroup.select('.tree-edges-layer').selectAll('line')
         .each(function(d) {
-            const color = colorFor([d.source.data.uid, d.target.data.uid]);
+            const srcRedex = redexUids.has(d.source.data.uid);
+            const tgtRedex = redexUids.has(d.target.data.uid);
+            const srcArg = argUids.has(d.source.data.uid);
+            const tgtArg = argUids.has(d.target.data.uid);
+            const color = (srcRedex && (tgtRedex || tgtArg)) ? blueHighlight
+                        : (srcArg || tgtArg) ? greenHighlight
+                        : null;
             if (color) {
                 d3.select(this)
                     .style('stroke', color)
